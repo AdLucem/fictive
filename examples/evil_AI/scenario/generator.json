@@ -1,0 +1,46 @@
+[
+    {
+        "cmd": "system",
+        "prompt": "generator_system.txt"
+    },
+    {
+        "cmd": "print",
+        "prompt": "generator_prompt.txt"
+    },
+    {
+        "cmd": "generate", 
+        "prompt": "generator_prompt.txt" 
+
+    },
+    {
+        "cmd": "print-latest",
+        "actor-name": "generator"
+    },
+    {
+        "cmd": "input-from",
+        "human_prompt": "" 
+    },
+    {
+        "cmd": "run-actor",
+        "actor-name": "helper",
+        "store": "next-instructions"
+    },
+    {
+        "cmd": "input-from",
+        "enclosing-prompt": "(INSTRUCTIONS: {INPUT_FROM})",
+        "input-from-store": "next-instructions",
+        "store": "full-instr"
+    },
+    {
+        "cmd": "generate",
+        "prompt": "var:full-instr"
+    },
+    {
+        "cmd": "print-latest",
+        "actor-name": "generator"
+    },
+    {
+        "cmd": "loop",
+        "step": 4
+    }
+]

@@ -1,0 +1,7 @@
+Your Task
+
+Take the snippet of the scene given below, and analyze what emotions the user is feeling based on their dialogue and behaviour.
+
+Scene:
+
+{INPUT_FROM}

@@ -1,0 +1,18 @@
+[
+    {
+        "cmd": "system",
+        "prompt": "trust_scorer_system.txt"
+    },
+    {
+        "cmd": "input-from",
+        "input_from_actor": "generator", 
+        "enclosing_prompt": "trust_scorer_prompt.txt" 
+
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest"
+    }
+]

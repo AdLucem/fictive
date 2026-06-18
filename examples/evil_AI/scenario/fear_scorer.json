@@ -1,0 +1,17 @@
+[
+    {
+        "cmd": "system",
+        "prompt": "fear_scorer_system.txt"
+    },
+    {
+        "cmd": "input-from",
+        "input_from_actor": "generator", 
+        "enclosing_prompt": "fear_scorer_prompt.txt" 
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest"
+    }
+]

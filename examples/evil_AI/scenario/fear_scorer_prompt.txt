@@ -1,0 +1,12 @@
+Your Task
+
+Take the snippet of the scene given below, and score- on a scale of 1 to 5 - how much fear the user is feeling based on their latest actions and dialogue. Provide justification for your answer.
+
+Respond in the below format:
+
+SCORE: (a number between 1 and 5)
+JUSTIFICATION: (Explanation for the score)
+
+SCENE:
+
+{INPUT_FROM}

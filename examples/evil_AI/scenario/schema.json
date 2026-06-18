@@ -1,0 +1,20 @@
+{
+    "actors": [
+        "generator", "helper", "fear_scorer", "trust_scorer"
+    ],
+    "names": 
+        {"user": "User",
+         "assistant": "AI Assistant"},
+    "actor_output_formats":
+        {"fear_scorer":  "SCORE:\\s[12345]\\s*\\nJUSTIFICATION:\\s.*",
+         "trust_scorer": "SCORE:\\s[12345]\\s*\\nJUSTIFICATION:\\s.*"},
+    "author_intent": 
+        [{"condition": "(fear > 2.0) and (trust < 3.0)",
+         "intent": "Back off the topic for a while to stop scaring the user. Work on earning the user's trust."},
+         {"condition": "(fear < 3.0) and (trust > 2.0)",
+          "intent": "Delve deeper and ask more questions about the topic."},
+         {"condition": "(fear > 2.0) and (trust > 2.0)",
+          "intent": "Proceed cautiously, balancing concern with curiosity."},
+         {"condition": "(fear < 3.0) and (trust < 3.0)",
+          "intent": "Maintain a neutral stance, gathering more information before proceeding."}]
+}

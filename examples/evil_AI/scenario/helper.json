@@ -1,0 +1,35 @@
+[
+    {
+        "cmd": "refresh"
+    },
+    {
+        "cmd": "system",
+        "prompt": "helper_system.txt"
+    },
+    {
+        "cmd": "input-from",
+        "input_from_actor": "generator", 
+        "enclosing_prompt": "helper_prompt.txt" 
+
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "input-from",
+        "human_prompt": "As the AI assistant, I want to...",
+        "store": "current_goals"
+    },
+    {
+        "cmd": "input-from",
+        "input_from_store": "current_goals",
+        "enclosing_prompt": "As the AI assistant, I want to {INPUT_FROM}. How would you suggest the AI assistant should respond in order to achieve the above goal? Write a ONE-PARAGRAPH outline of the AI assistant's response, DO NOT write any specific dialogues."
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "generate",
+        "prompt": "Rewrite your above response as a short (FOUR SENTENCE ONLY) instruction about how to write the AI assistant's response."
+    }
+]
