@@ -1,5 +1,8 @@
 [
     {
+        "cmd": "refresh"
+    },
+    {
         "cmd": "system",
         "prompt": "fear_scorer_system.txt"
     },

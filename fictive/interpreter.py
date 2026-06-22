@@ -10,7 +10,7 @@ import traceback
 from enum import StrEnum, auto
 from dataclasses import dataclass
 
-from .commands import Cmd, CommandObj
+from .parser.commands import Cmd, CommandObj
 from .actors import Actor 
 from .data_structures import Store 
 
@@ -79,7 +79,11 @@ class Interpreter:
             self.callstack.pop()
             # And check if actor output needs to be captured
             self.fill_variable()
-
+        
+        # If callstack is empty AFTER popping, return abnormal exit
+        if self.callstack == []:
+            return -1
+        
         current_acting_actor = self.actor_fetch(self.callstack[-1])
         return current_acting_actor
 
@@ -266,9 +270,8 @@ class Interpreter:
             else:
                 raise Exception(f"Actor output {actor_output} in wrong format- can accept only str or dict.")
             
-        val = self.waiting_store.pop(var)
-        return val 
-    
+            self.waiting_store.pop(var)
+
     def __repr__(self):
         
         s = "INTERPRETER STATE:" + ("=" * 60) + "\n"

@@ -1,6 +1,24 @@
 # Scene Config Language
 
-## Command: `system`
+
+## Expressions
+
+```
+Atomic -> var:<varname>
+        | output:<actorname>
+        | file:<filepath>
+
+
+MathOp -> + | 
+Expr -> Atomic
+      | Expr MathOp Expr
+      | Expr BoolOp Expr
+      | (Expr) 
+```
+
+## Commands
+
+### Command: `system`
 
 Set system prompt.
 
@@ -9,7 +27,7 @@ Params:
     - prompt: str | Path = "The prompt, either as a prompt string or as a file containing the prompt string."
 ```
 
-## Command: `generate`
+### Command: `generate`
 
 Pass history to pipeline to get text-generation output.
 
@@ -18,7 +36,7 @@ Params:
     - prompt: Optional[str | Path] = "If specified, append this prompt to existing history before sending to generator. If not specified, only the history is sent to generator."
 ```
 
-## Command: `input-from`
+### Command: `input-from`
 
 Take input from a source- either an agent (agent.current_output), from user (get user's input) or from an assigned variable in the agent's memory.
 
@@ -40,7 +58,7 @@ Params:
 - input_from_store: Optional[str] = "Name of the variable in the store from which to read input from."
 ```
 
-## Command: `run-agent`
+### Command: `run-agent`
 
 Run a single cycle of the given agent (NO LOOPING), and get the output at the end of the cycle.
 
@@ -53,11 +71,11 @@ Params:
 - store: Optional[str] = "Name of variable inside the agent memory in which to store given agent's output (i.e: last message in agent history). If not specified, output will simply remain in the called agent's history."
 ```
 
-## Command: `refresh`
+### Command: `refresh`
 
 Refresh the agent's history i.e: delete everything except (if applicable) system prompt. 
 
-## Command: `loop`
+### Command: `loop`
 
 Loop around to the beginning of the agent's instructions (or, optionally, loop to given step.)
 
@@ -67,11 +85,11 @@ Params:
 - step : Optional[int] = 0 ::= "Loop to given step [STEPS START AT 0]. By default, loop around to first step i.e: 0."
 ```
 
-## Command: `assign`
+### Command: `assign`
 
 Assign a variable <var_name> some value <value>. 
 
-## Command: `print`
+### Command: `print`
 
 Print some text (or text read from a file) to screen.
 
@@ -81,7 +99,7 @@ Params:
 - prompt : str | Path = "Text/variable in store/file to read text from, and print the text.
 ```
 
-## Command: `print-latest`
+### Command: `print-latest`
 
 Print the last message in the agent's history. If `n` is specified, then print the n'th previous message.
 
@@ -91,3 +109,13 @@ Params:
 - agent-name: Optional[str] = "Name of agent whose history to print. If not specified, print for calling agent."
 - n: Optional[int] = "If specified, print n'th previous message"
 ```
+
+### Command: `cond`
+
+Conditional i.e: if/else. (works more like a switch/case in practice). Define conditions (including an optional `else` condition), with a block of statements to be executed for each condition.
+
+```
+Params:
+
+- `conditions`: List[dict] = "List of conditions, listed in order of evaluation. 
+``` 

@@ -12,7 +12,7 @@ import logging
 from llm_utils import args_to_request_config, configure_logging, sglang_chat_completion, sglang_chat_completion_batch
 from .data_structures import History, Scene, Store 
 from .pipelines import LLMPipeline, SGLangPipeline, TransformersPipeline, PipelineConfig, pipeline_from_config
-from .commands import Cmd, CommandObj
+from .parser.commands import Cmd, CommandObj
 
 @dataclass
 class ActorConfig:
@@ -274,7 +274,7 @@ class Actor:
 
     def is_last_instr(self):
         """Determine if actor is on its last instruction"""
-        last_in_seq = self.cur_step == (len(self.instructions) - 1) 
+        last_in_seq = self.cur_step >= (len(self.instructions) - 1) 
         is_not_loop = self.get_current_instr().name not in ["loop"]
 
         if last_in_seq and is_not_loop:

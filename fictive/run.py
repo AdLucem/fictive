@@ -2,6 +2,7 @@ import argparse
 from copy import deepcopy
 import json 
 import transformers
+import traceback
 
 from .parse_scenario_config import load_scenario_config
 from .pipelines import pipeline_config_from_args, pipeline_from_config
@@ -126,87 +127,92 @@ def run_debug(interpreter: Interpreter, main_actor_name: str):
 
     main_actor = interpreter.actor_fetch(main_actor_name)
     working_actor = main_actor
-    last_instr_flag = False 
     while True:
 
-        if working_actor.is_last_instr():
-            print(
-                f"{main_actor_name} is at its last instruction step "
-                f"({main_actor.cur_step}). Stopping debug run."
-            )
-            break 
-        
+        # Exit: 0 (normal exit)or -1 (abnormal exit)  
+        if isinstance(working_actor, int):
+            if working_actor == 0:
+                print(
+                    f"{main_actor_name} is at its last instruction step "
+                    f"({main_actor.cur_step}). Stopping debug run."
+                )
+                break
+            elif working_actor < 0:
+                print(
+                    f"{main_actor_name} exited abnormally at "
+                    f"({main_actor.cur_step}) with exit code {working_actor}. Stopping debug run."
+                )
+                break
+
         current_instr = working_actor.get_current_instr()
         print(
             f"\n[{working_actor.name} step {working_actor.cur_step}] "
             f"Next instruction: {current_instr} \n Callstack: {interpreter.callstack}"
         )
 
-        while True:
-            raw_command = input("debug> ").strip()
-            if raw_command == "":
+        raw_command = input("debug> ").strip()
+        if raw_command == "":
+            continue
+
+        parts = raw_command.split()
+        command = parts[0].lower()
+
+        try:
+            if command in {"n", "next"}:
+                working_actor = interpreter.exec_current()
+                show_current_instr = True
+                print()
+                continue
+            if command in {"h", "help"}:
+                _print_help()
+                continue
+            if command in {"q", "quit"}:
+                return
+            if command in {"s", "state"}:
+                print(interpreter)
+                continue
+            if command == "store":
+                if len(parts) == 1:
+                    print(interpreter.store)
+                else:
+                    key = " ".join(parts[1:])
+                    print(interpreter.store_fetch(key))
+                continue
+            if command == "actors":
+                _print_actor_summary()
+                continue
+            if command in {"a", "actor"} and len(parts) == 1:
+                print(_actor_or_main(None))
+                continue
+            if command == "actor" and len(parts) >= 2:
+                print(interpreter.actor_fetch(" ".join(parts[1:])))
+                continue
+            if command == "hist":
+                actor_name = parts[1] if len(parts) >= 2 else main_actor_name
+                _print_history(actor_name)
+                continue
+            if command == "latest":
+                actor_name = working_actor.name
+                n = 0
+                if len(parts) >= 2:
+                    try:
+                        n = int(parts[1])
+                    except ValueError:
+                        actor_name = parts[1]
+                if len(parts) >= 3:
+                    n = int(parts[2])
+                _print_latest(actor_name, n)
+                continue
+            if command == "instr":
+                actor = _actor_or_main(parts[1] if len(parts) >= 2 else None)
+                print(actor.get_current_instr())
                 continue
 
-            parts = raw_command.split()
-            command = parts[0].lower()
+            print(f"Unknown command: {raw_command}")
+            _print_help()
+        except Exception:
+            traceback.print_exc()
 
-            try:
-                if command in {"n", "next"}:
-                    working_actor = interpreter.exec_current()
-                    print()
-                    break
-                if command in {"h", "help"}:
-                    _print_help()
-                    continue
-                if command in {"q", "quit"}:
-                    return
-                if command in {"s", "state"}:
-                    print(interpreter)
-                    continue
-                if command == "store":
-                    if len(parts) == 1:
-                        print(interpreter.store)
-                    else:
-                        key = " ".join(parts[1:])
-                        print(interpreter.store_fetch(key))
-                    continue
-                if command == "actors":
-                    _print_actor_summary()
-                    continue
-                if command in {"a", "actor"} and len(parts) == 1:
-                    print(_actor_or_main(None))
-                    continue
-                if command == "actor" and len(parts) >= 2:
-                    print(interpreter.actor_fetch(" ".join(parts[1:])))
-                    continue
-                if command == "hist":
-                    actor_name = parts[1] if len(parts) >= 2 else main_actor_name
-                    _print_history(actor_name)
-                    continue
-                if command == "latest":
-                    actor_name = working_actor.name
-                    n = 0
-                    if len(parts) >= 2:
-                        try:
-                            n = int(parts[1])
-                        except ValueError:
-                            actor_name = parts[1]
-                    if len(parts) >= 3:
-                        n = int(parts[2])
-                    _print_latest(actor_name, n)
-                    continue
-                if command == "instr":
-                    actor = _actor_or_main(parts[1] if len(parts) >= 2 else None)
-                    print(actor.get_current_instr())
-                    continue
-
-                print(f"Unknown command: {raw_command}")
-                _print_help()
-            except IndexError:
-                pass
-
-            # except Exception as exc:
-            #    print(f"Debugger error: {exc}")
     
         
 

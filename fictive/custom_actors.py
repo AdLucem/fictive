@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 
 from .actors import ActorConfig, Actor
-from .commands import Cmd, CommandObj
+from .parser.commands import Cmd, CommandObj
 
 
 default_scorer_format = "SCORE:\\s[12345]\\s*\\nJUSTIFICATION:\\s.*"
