@@ -1,0 +1,25 @@
+[
+    {
+        "cmd": "system",
+        "prompt": "generator_system.txt"
+    },
+    {
+        "cmd": "print",
+        "prompt": "generator_prompt.txt"
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest",
+        "actor-name": "generator"
+    },
+    {
+        "cmd": "input-from",
+        "human_prompt": "" 
+    },
+    {
+        "cmd": "loop",
+        "step": 2
+    }
+]

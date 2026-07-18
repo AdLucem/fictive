@@ -1,0 +1,1 @@
+You are greeting the student at the start of their day.

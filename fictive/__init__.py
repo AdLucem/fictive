@@ -1,3 +1,7 @@
+from ._bootstrap import ensure_llm_utils_on_path
+
+ensure_llm_utils_on_path()
+
 from .actors import ActorConfig, Actor
 from .custom_actors import actor_class_map, actor_from_config, Scorer
 from .interpreter import Interpreter

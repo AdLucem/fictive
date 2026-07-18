@@ -78,10 +78,11 @@ def load_scenario_config(scenario_dir):
 
     # Convert actor-output-format strings to compiled regex
     actor_output_formats = {}
-    for actor_name, output_format in schema["actor_output_formats"].items():
-        pattern = re.compile(output_format)
-        actor_output_formats[actor_name] = pattern
-    schema["actor_output_formats"] = actor_output_formats
+    if "actor_output_formats" in schema:
+        for actor_name, output_format in schema["actor_output_formats"].items():
+            pattern = re.compile(output_format)
+            actor_output_formats[actor_name] = pattern
+        schema["actor_output_formats"] = actor_output_formats
 
     # Load actor definitions from <actorname>.json files
     actor_definitions = {}

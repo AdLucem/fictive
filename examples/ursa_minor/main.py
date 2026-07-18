@@ -9,14 +9,13 @@ if str(REPO_ROOT) not in sys.path:
 from fictive import run_debug, run_chat, run_single_actor, load_scenario_config, ActorConfig, actor_from_config, Interpreter
 from llm_utils import pipeline_from_config, pipeline_config_from_args
 
-print("HELLO")
 
 def _main_args_parser():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--scenario", 
-        default="examples/evil_AI/scenario"
+        default="examples/ursa_minor/scenario"
     )
     parser.add_argument(
         "--log-level",
@@ -26,7 +25,7 @@ def _main_args_parser():
     )
     parser.add_argument(
         "--storage-dir",
-        default=str(Path.home() / ".fictive_logs" / "evil_AI"),
+        default=str(Path.home() / ".fictive_logs" / "ursa_minor"),
         help="Store scenes (default: ~/.fictive_logs/evil_AI).",
     )
     parser.add_argument(
@@ -52,7 +51,7 @@ def _main_args_parser():
     )
     parser.add_argument(
         "--model", 
-        help="Huggingface model url",
+        help="Model url",
         default="coder3101/Qwen3.5-27B-heretic"
     )
     parser.add_argument(

@@ -1,17 +1,14 @@
-import re
 import os
-import time
 import json
 import pathlib
-from copy import deepcopy
 import argparse
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 from dataclasses import dataclass
 import logging
+from copy import deepcopy
 
-from llm_utils import args_to_request_config, configure_logging, sglang_chat_completion, sglang_chat_completion_batch
+from llm_utils import LLMPipeline, PipelineConfig, pipeline_from_config
 from .data_structures import History, Scene, Store 
-from .pipelines import LLMPipeline, SGLangPipeline, TransformersPipeline, PipelineConfig, pipeline_from_config
 from .parser.commands import Cmd, CommandObj
 
 @dataclass
@@ -26,8 +23,8 @@ class ActorConfig:
     # Note that instructions takes precedence over source_file
     instructions: Optional[List[dict | type[CommandObj]]] = None
 
-    pipeline_config: Optional[argparse.Namespace] = None
-    pipeline: Optional[type[LLMPipeline]] = None
+    pipeline_config: Optional[PipelineConfig | argparse.Namespace] = None
+    pipeline: Optional[LLMPipeline] = None
     
     output_format: Optional[str] = None
 

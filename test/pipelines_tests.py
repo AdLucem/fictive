@@ -3,7 +3,8 @@ import pathlib
 import logging
 from copy import deepcopy
 
-from fictive.pipelines import PipelineConfig, pipeline_from_config, parse_prompt_file, pipeline_config_from_args
+from llm_utils import PipelineConfig, pipeline_config_from_args, pipeline_from_config
+from llm_utils.cli import parse_prompt_file
 
 
 def _pipeline_args_parser():
@@ -106,9 +107,10 @@ if __name__ == "__main__":
 
     logging.info("Reading prompts from: %s", args.init_prompts)
     
-    system_prompt, user_init = parse_prompt_file(args.init_prompts)
-    init_messages = [{"role": "system", "content": system_prompt},
-                     {"role": "user", "content": user_init}]
+    prompt_messages = parse_prompt_file(args.init_prompts)
+    system_prompt = prompt_messages[0]["content"]
+    user_init = prompt_messages[1]["content"]
+    init_messages = deepcopy(prompt_messages)
     messages = []
     messages.append({"role": "system", "content": system_prompt})
     if user_init != "":

@@ -177,7 +177,10 @@ class Scene:
             names :: mapping of roles to screen name for that role. Eg: names[user] = MyName
     """
 
-    def __init__(self, names={}, actor=None, init_scene=[]):
+    def __init__(self, names={}, actor=None, agent=None, init_scene=[]):
+
+        if agent is not None and actor is None:
+            actor = agent
 
         if actor:
             self.scene = History(names=names, init_list=actor.history.read()[:2])

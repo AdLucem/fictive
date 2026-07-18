@@ -1,0 +1,3 @@
+[submodule "llm-utils"]
+	path = llm-utils
+	url = https://github.com/AdLucem/llm-utils.git

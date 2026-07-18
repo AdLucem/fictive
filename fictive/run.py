@@ -4,8 +4,8 @@ import json
 import transformers
 import traceback
 
+from llm_utils import pipeline_config_from_args, pipeline_from_config
 from .parse_scenario_config import load_scenario_config
-from .pipelines import pipeline_config_from_args, pipeline_from_config
 from .actors import ActorConfig, Actor
 from .interpreter import Interpreter
 from .data_structures import Store

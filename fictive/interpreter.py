@@ -7,7 +7,6 @@ from copy import copy, deepcopy
 from typing import Dict, List, Optional, Tuple
 import logging
 import traceback
-from enum import StrEnum, auto
 from dataclasses import dataclass
 
 from .parser.commands import Cmd, CommandObj

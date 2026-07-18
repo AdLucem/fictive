@@ -1,7 +1,13 @@
 import pathlib
 from typing import Dict, List, Optional, Tuple
-from enum import StrEnum, auto
+from enum import Enum, auto
 from dataclasses import dataclass
+
+try:
+    from enum import StrEnum
+except ImportError:
+    class StrEnum(str, Enum):
+        pass
 
 
 class Cmd(StrEnum):
