@@ -3,6 +3,7 @@ import os
 import time
 import json
 import pathlib
+import ast
 from copy import copy, deepcopy
 from typing import Dict, List, Optional, Tuple
 import logging
@@ -48,6 +49,7 @@ class Interpreter:
             "assign": self.exec_ASSIGN,
             "print": self.exec_PRINT,
             "print-latest": self.exec_PRINT_LATEST,
+            "cond": self.exec_COND,
         }
 
     def exec(self,
@@ -60,9 +62,6 @@ class Interpreter:
         if self.callstack == []:
             self.callstack.append(actor_name)
         
-        # Is it the acting actor's last instruction?
-        is_last = self.actor_fetch(actor_name).is_last_instr()
-
         try:
             logging.debug(
                 f"\n[{actor_name} executing command {cmd}] "
@@ -72,23 +71,29 @@ class Interpreter:
         except:
             print(f"ERROR IN ACTOR {actor_name} INSTRUCTION {self.actors[actor_name].cur_step}: {cmd}")
             traceback.print_exc()
+            raise
 
-        # If last instruction executed, pop callstack
-        if is_last:
-            self.callstack.pop()
-            # And check if actor output needs to be captured
-            self.fill_variable()
-        
-        # If callstack is empty AFTER popping, return abnormal exit
-        if self.callstack == []:
-            return -1
-        
-        current_acting_actor = self.actor_fetch(self.callstack[-1])
-        return current_acting_actor
+        return acting_actor
 
     def exec_current(self):
         """
-        Execute the current instruction step that the program is on.
+        Execute one interpreter step for the actor at the top of the callstack.
+
+        The step may come from either:
+        - the actor's base instruction list (`cur_step`), or
+        - the actor's temporary `pending_instructions` queue, which is used by
+          dynamic control flow such as `cond`
+
+        Execution flow:
+        - fetch the current actor and current instruction
+        - dispatch that instruction through `self.exec(...)`
+        - advance either the pending queue or the base instruction pointer
+        - if an actor has finished, unwind the callstack and fill any deferred
+          `run-actor` outputs into the shared store
+
+        Return:
+        - the actor that now has control after the step, or
+        - `-1` when execution has fully unwound and no actor remains active
         """
 
         # If callstack is empty i.e: no current acting actor
@@ -99,14 +104,47 @@ class Interpreter:
         actor_name = self.callstack[-1]
 
         current_actor = self.actors[actor_name]
+        current_from_pending = current_actor.has_pending_instruction()
         current_instr = current_actor.get_current_instr()
+        was_last_base_instruction = (
+            (not current_from_pending)
+            and current_actor.is_last_instr()
+        )
         
         logging.debug(f"{actor_name} executing current instruction: {current_instr}")
 
         acting_actor = self.exec(current_instr, actor_name)
-        current_actor.increment_instr()
 
-        return acting_actor
+        if current_from_pending:
+            # Branch-local commands injected by `cond` are consumed from the
+            # pending queue without advancing the actor's base instruction
+            # pointer.
+            current_actor.pop_pending_instruction()
+        else:
+            current_actor.increment_instr()
+
+        if current_from_pending:
+            # Once a pending block finishes, optionally return control to the
+            # caller if this actor had already reached the end of its base
+            # instruction list before entering the pending block.
+            if current_actor.return_after_pending and (not current_actor.has_pending_instruction()):
+                current_actor.return_after_pending = False
+                self.callstack.pop()
+                self.fill_variable()
+        elif was_last_base_instruction:
+            # If the actor's final base instruction queued extra work (for
+            # example via `cond`), defer callstack unwinding until that pending
+            # block finishes. Otherwise unwind immediately.
+            if current_actor.has_pending_instruction():
+                current_actor.return_after_pending = True
+            else:
+                self.callstack.pop()
+                self.fill_variable()
+
+        if self.callstack == []:
+            return -1
+
+        return self.actor_fetch(self.callstack[-1])
              
     def exec_ASSIGN(self,
                     cmd: type[CommandObj],
@@ -189,13 +227,16 @@ class Interpreter:
         if isinstance(input_msg, dict):
             complete_input = input_msg["content"]
         if cmd.enclosing_prompt:
-            if "{INPUT_FROM}" in cmd.enclosing_prompt:
-                complete_input = cmd.enclosing_prompt.format(INPUT_FROM=input_msg)
+            enclosing_prompt = self.parse_prompt_object(prompt_obj=cmd.enclosing_prompt)
+            if "{INPUT_FROM}" in enclosing_prompt:
+                complete_input = enclosing_prompt.format(INPUT_FROM=input_msg)
             else:
-                complete_input = cmd.enclosing_prompt + "\n" + input_msg
+                complete_input = enclosing_prompt + "\n" + input_msg
         
         if cmd.store:
             self.store.set(cmd.store, complete_input)
+            if cmd.history:
+                acting_actor.append_to_history(complete_input)
         else:
             acting_actor.append_to_history(complete_input)
         
@@ -249,6 +290,26 @@ class Interpreter:
         else:
             print(latest_output)
         return self.actor_fetch(actor_name)
+
+    def exec_COND(self,
+                  cmd: type[CommandObj],
+                  actor_name: str) -> Actor:
+
+        acting_actor = self.actor_fetch(actor_name)
+        selected_commands = []
+
+        for branch in cmd.conditions:
+            condition = branch.get("condition")
+            is_else = condition in (None, "", "else", "ELSE")
+            if is_else or self.evaluate_condition(condition):
+                selected_commands = branch.get("commands", [])
+                break
+
+        if selected_commands:
+            acting_actor.queue_instructions(selected_commands)
+            self.actors[actor_name] = acting_actor
+
+        return acting_actor
     
     def exec_OTHER(self, 
                    cmd: type[CommandObj],
@@ -260,7 +321,7 @@ class Interpreter:
         """Replace a variable in the waiting store,
         with {var: actor output} in store"""
 
-        for var, actor_name in self.waiting_store.items():
+        for var, actor_name in list(self.waiting_store.items()):
             actor_output = self.actor_fetch(actor_name).get_latest_output()
             if isinstance(actor_output, str):
                 self.store.set(var, actor_output)
@@ -296,7 +357,7 @@ class Interpreter:
             raise Exception("Prompt given to Interpreter.parse_prompt_objects is None. This must be caught in the command execution function.")
         # if prompt is given as a {"role": ..., "content": ...}
         # dict, then return content
-        elif isinstance(prompt_obj, dict) and ("role" in dict) and ("content" in dict):
+        elif isinstance(prompt_obj, dict) and ("role" in prompt_obj) and ("content" in prompt_obj):
             return prompt_obj["content"]
         # Else if prompt is given as a .txt file path 
         # (note that file path must exist), then load
@@ -319,7 +380,7 @@ class Interpreter:
     def store_fetch(self, key):
 
         value = self.store.get(key)
-        if value:
+        if value is not None:
             return value
         else:
             raise Exception(f"Variable name {key} not in memory store")
@@ -330,3 +391,45 @@ class Interpreter:
             return self.actors[name]
         else:
             raise Exception(f"Actor name {name} not in theater")
+
+    def evaluate_condition(self, condition: str) -> bool:
+        context = {
+            **self.store.store,
+            "True": True,
+            "False": False,
+            "None": None,
+        }
+
+        tree = ast.parse(condition, mode="eval")
+        allowed_nodes = (
+            ast.Expression,
+            ast.BoolOp,
+            ast.BinOp,
+            ast.UnaryOp,
+            ast.Compare,
+            ast.Name,
+            ast.Load,
+            ast.Constant,
+            ast.And,
+            ast.Or,
+            ast.Not,
+            ast.Add,
+            ast.Sub,
+            ast.Mult,
+            ast.Div,
+            ast.Mod,
+            ast.Pow,
+            ast.Eq,
+            ast.NotEq,
+            ast.Lt,
+            ast.LtE,
+            ast.Gt,
+            ast.GtE,
+        )
+        for node in ast.walk(tree):
+            if not isinstance(node, allowed_nodes):
+                raise ValueError(f"Unsupported expression in cond condition: {condition}")
+            if isinstance(node, ast.Name) and (node.id not in context):
+                raise ValueError(f"Unknown variable '{node.id}' in cond condition: {condition}")
+
+        return bool(eval(compile(tree, "<cond>", "eval"), {"__builtins__": {}}, context))

@@ -2,6 +2,7 @@ import pathlib
 from typing import Dict, List, Optional, Tuple
 from enum import Enum, auto
 from dataclasses import dataclass
+from copy import deepcopy
 
 try:
     from enum import StrEnum
@@ -12,15 +13,16 @@ except ImportError:
 
 class Cmd(StrEnum):
     # You can modify this Enum class init for new commans
-    SYSTEM = auto()
+    SYSTEM = "system"
     INPUT_FROM = "input-from"
-    GENERATE = auto()
+    GENERATE = "generate"
     RUN_ACTOR = "run-actor"
-    REFRESH = auto()
-    LOOP = auto()
-    ASSIGN = auto()
-    PRINT = auto()
+    REFRESH = "refresh"
+    LOOP = "loop"
+    ASSIGN = "assign"
+    PRINT = "print"
     PRINT_LATEST = "print-latest"
+    COND = "cond"
 
     @staticmethod
     def define_map():
@@ -38,6 +40,7 @@ class Cmd(StrEnum):
             Cmd.ASSIGN: ASSIGN,
             Cmd.PRINT: PRINT,
             Cmd.PRINT_LATEST: PRINT_LATEST,
+            Cmd.COND: COND,
         }
         return command_maps
     
@@ -147,3 +150,39 @@ class PRINT_LATEST(CommandObj):
     name = "print-latest"
     actor_name: Optional[str] = None
     n: int = 0
+
+
+@dataclass
+class COND(CommandObj):
+    """Evaluate ordered conditions and queue the first matching command block."""
+
+    name = "cond"
+    conditions: List[dict]
+
+    def __post_init__(self):
+        normalized_conditions = []
+        for raw_condition in self.conditions:
+            if not isinstance(raw_condition, dict):
+                raise TypeError("Each cond condition must be a dict.")
+
+            condition = deepcopy(raw_condition)
+            commands = condition.get("commands", condition.get("block", []))
+            if not isinstance(commands, list):
+                raise TypeError("Each cond branch must define a list of commands.")
+
+            condition["commands"] = [
+                parse_command_dict(cmd) if isinstance(cmd, dict) else cmd
+                for cmd in commands
+            ]
+            normalized_conditions.append(condition)
+
+        self.conditions = normalized_conditions
+
+
+def parse_command_dict(instr: dict) -> CommandObj:
+    cmd = Cmd(instr["cmd"])
+    data_init = cmd.map_to_dataclass()
+    cmd_data = deepcopy(instr)
+    cmd_data.pop("cmd")
+    cmd_data = cmd.normalize_params(cmd_data)
+    return data_init(**cmd_data)

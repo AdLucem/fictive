@@ -21,6 +21,14 @@ helpers and SGLang integration.
   Repository maintenance rule for keeping `DOCS.md` current when the project
   structure or usage changes.
 
+- `AGENT_DOCS.txt`
+  Internal architecture notes describing how scenario commands are loaded,
+  parsed into runtime command objects, and executed by the interpreter.
+
+- `AGENT_DOCS.md`
+  Condensed architecture reference intended to be read before opening source
+  files when a future agent needs to understand how a class or module works.
+
 - `README.md`
   Minimal project description.
 
@@ -69,7 +77,9 @@ helpers and SGLang integration.
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
-  `system`, `generate`, `input-from`, `run-actor`, `assign`, and `print`.
+  `system`, `generate`, `input-from`, `run-actor`, `assign`, `cond`, and
+  `print`. Conditional branches queue nested command blocks and evaluate
+  expressions against the shared interpreter store.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -132,7 +142,10 @@ my_scenario/
 
 `schema.json` names the actors and can define actor output-format regexes.
 Each actor JSON file contains that actor's instruction sequence in the command
-language documented in `SCENE_CONFIG_LANGUAGE.md`.
+language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
+ordered conditional branches through the `cond` command, which evaluates
+store-backed expressions and queues nested command blocks for the first
+matching branch.
 
 When actor definitions contain relative paths, `load_scenario_config(...)`
 resolves them relative to the scenario directory if the target exists there.

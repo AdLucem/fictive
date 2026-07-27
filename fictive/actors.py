@@ -9,7 +9,7 @@ from copy import deepcopy
 
 from llm_utils import LLMPipeline, PipelineConfig, pipeline_from_config
 from .data_structures import History, Scene, Store 
-from .parser.commands import Cmd, CommandObj
+from .parser.commands import CommandObj, parse_command_dict
 
 @dataclass
 class ActorConfig:
@@ -31,14 +31,19 @@ class ActorConfig:
 
 class Actor:
     """
-    An Actor is a single 'chat' conversational actor- it has:
-    - a name
-    - a config
-    - a text generation function (pipeline)
-    - [Optional] a system prompt
-    - a sequence of instructions to follow
-    - current step (of instructions)
-    - a history (of that particular conversation)
+    Runtime representation of one scenario actor.
+
+    An actor owns:
+    - A name and ActorConfig
+    - a parsed instruction list loaded from scenario JSON
+    - `cur_step` pointer 
+    - a temporary pending-instruction queue used for dynamic control flow such as `cond`
+    - conversation history and optional system prompt
+    - an LLM pipeline used by `generate`
+
+    The interpreter drives actors step-by-step by asking for the current
+    instruction, executing it, and then advancing either the base instruction
+    pointer or the pending queue.
     """
 
     def __init__(self, actor_cfg: ActorConfig):
@@ -55,6 +60,8 @@ class Actor:
             self.instructions = Actor.parse_actor_instructions(self.source)
         # Current step of instructions that the actor is at
         self.cur_step = 0
+        self.pending_instructions = []
+        self.return_after_pending = False
  
         self.system_prompt = None 
 
@@ -105,7 +112,19 @@ class Actor:
         Return the current instruction (from the actor instructions list)
         that the actor is on.
         """
+        if self.pending_instructions:
+            return self.pending_instructions[0]
         return self.instructions[self.cur_step]
+
+    def has_pending_instruction(self) -> bool:
+        return len(self.pending_instructions) > 0
+
+    def queue_instructions(self, instructions: List[type[CommandObj]]):
+        self.pending_instructions.extend(instructions)
+
+    def pop_pending_instruction(self):
+        if self.pending_instructions:
+            self.pending_instructions.pop(0)
     
     def increment_instr(self, n=1):
         """
@@ -148,13 +167,7 @@ class Actor:
         command_objects = []
         logging.debug("Actor Instructions being parsed:")
         for s in sequence:
-            cmd = Cmd(s["cmd"])
-            data_init = cmd.map_to_dataclass()
-            cmd_data = deepcopy(s)
-            cmd_data.pop("cmd")
-            cmd_data = cmd.normalize_params(cmd_data)
-
-            cmd_obj = data_init(**cmd_data)
+            cmd_obj = parse_command_dict(s)
             logging.debug(f"Parsed {s} -> {cmd_obj}")
             command_objects.append(cmd_obj)
 
@@ -162,14 +175,7 @@ class Actor:
 
     @staticmethod
     def parse_instruction(instr: dict):
-
-        cmd = Cmd(instr["cmd"])
-        data_init = cmd.map_to_dataclass()
-        cmd_data = deepcopy(instr)
-        cmd_data.pop("cmd")
-        cmd_data = cmd.normalize_params(cmd_data)
-
-        cmd_obj = data_init(**cmd_data)
+        cmd_obj = parse_command_dict(instr)
         logging.debug(f"Parsed {instr} -> {cmd_obj}")
         return cmd_obj
     

@@ -117,5 +117,39 @@ Conditional i.e: if/else. (works more like a switch/case in practice). Define co
 ```
 Params:
 
-- `conditions`: List[dict] = "List of conditions, listed in order of evaluation. 
-``` 
+- `conditions`: List[dict] = "List of branches, listed in order of evaluation. Each branch may define:
+    - `condition`: str = Python-style boolean expression evaluated against values in the shared store.
+      - Store values are referenced directly by variable name, e.g. `fear > 2 and trust < 3`.
+      - A branch with `condition: "else"` (or with no `condition`) acts as the fallback branch.
+    - `commands`: List[Command] = Block of commands to queue and execute when the branch matches."
+```
+
+Example:
+
+```json
+{
+  "cmd": "cond",
+  "conditions": [
+    {
+      "condition": "(fear > 2.0) and (trust < 3.0)",
+      "commands": [
+        {
+          "cmd": "assign",
+          "name": "next-instructions",
+          "value": "Back off the topic for a while to stop scaring the user."
+        }
+      ]
+    },
+    {
+      "condition": "else",
+      "commands": [
+        {
+          "cmd": "assign",
+          "name": "next-instructions",
+          "value": "Continue."
+        }
+      ]
+    }
+  ]
+}
+```

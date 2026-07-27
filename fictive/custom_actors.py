@@ -37,14 +37,31 @@ class Scorer(Actor):
         self.scores = []
 
     def generate(self, prompt = None):
+        def extract_score(text):
+            matches = re.findall(self.pattern, text)
+            if matches:
+                score_match = re.search(r"\d+", matches[-1])
+                if score_match:
+                    return int(score_match.group())
+
+            relaxed_match = re.search(
+                r"SCORE\s*:?\s*([1-5])",
+                text,
+                flags=re.IGNORECASE,
+            )
+            if relaxed_match:
+                return int(relaxed_match.group(1))
+
+            return None
+
         super().generate(prompt)
         result = super().get_latest_output()
         content = result["content"]
 
-        matches = re.findall(self.pattern, content)
+        score_num = extract_score(content)
         num_regens = 10
         for i in range(num_regens):
-            if matches:
+            if score_num is not None:
                 break
             else:
                 logging.debug(f"Current output for {self.name} not matching pattern. Regenerating...")
@@ -52,19 +69,23 @@ class Scorer(Actor):
                 super().generate(prompt)
                 result = super().get_latest_output()
                 content = result["content"]
-                matches = re.findall(self.pattern, content)
+                score_num = extract_score(content)
 
-        if matches:
-            last_match = matches[-1]
-
-            score_num = int(re.search(r"\d+", last_match).group())
+        if score_num is not None:
             self.scores.append(score_num)
         else:
-            raise Exception(f"Not getting properly formatted output from actor {self.name} even after {num_regens} reruns")
+            raise Exception(
+                f"Not getting properly formatted output from actor {self.name} even after {num_regens} reruns. "
+                f"Last output was: {content}"
+            )
 
     def get_latest_output(self, n=0):
+        return self.scores[-(n + 1)]
 
-        return self.scores[-n]        
+    def refresh(self):
+        old_history = super().refresh()
+        self.scores = []
+        return old_history
     
 
 actor_class_map = {

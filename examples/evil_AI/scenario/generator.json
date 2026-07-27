@@ -22,8 +22,68 @@
     },
     {
         "cmd": "run-actor",
-        "actor-name": "helper",
-        "store": "next-instructions"
+        "actor-name": "fear_scorer",
+        "store": "fear"
+    },
+    {
+        "cmd": "run-actor",
+        "actor-name": "trust_scorer",
+        "store": "trust"
+    },
+    {
+        "cmd": "cond",
+        "conditions": [
+            {
+                "condition": "(fear > 2.0) and (trust < 3.0)",
+                "commands": [
+                    {
+                        "cmd": "assign",
+                        "name": "next-instructions",
+                        "value": "Back off the topic for a while to stop scaring the user. Work on earning the user's trust."
+                    }
+                ]
+            },
+            {
+                "condition": "(fear < 3.0) and (trust > 2.0)",
+                "commands": [
+                    {
+                        "cmd": "assign",
+                        "name": "next-instructions",
+                        "value": "Delve deeper and ask more questions about the topic."
+                    }
+                ]
+            },
+            {
+                "condition": "(fear > 2.0) and (trust > 2.0)",
+                "commands": [
+                    {
+                        "cmd": "assign",
+                        "name": "next-instructions",
+                        "value": "Proceed cautiously, balancing concern with curiosity."
+                    }
+                ]
+            },
+            {
+                "condition": "(fear < 3.0) and (trust < 3.0)",
+                "commands": [
+                    {
+                        "cmd": "assign",
+                        "name": "next-instructions",
+                        "value": "Maintain a neutral stance, gathering more information before proceeding."
+                    }
+                ]
+            },
+            {
+                "condition": "else",
+                "commands": [
+                    {
+                        "cmd": "assign",
+                        "name": "next-instructions",
+                        "value": "Continue the conversation while learning more about the user's emotional state."
+                    }
+                ]
+            }
+        ]
     },
     {
         "cmd": "input-from",
