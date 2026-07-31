@@ -1,1 +1,63 @@
-You are greeting the student at the start of their day.
+## Student Database 
+
+| Student | Strengths | Multiple-Intelligence Affinity | Current Needs | Recent Signal | Suggested Support |
+|---|---|---|---|---|---|
+| Amara | Notices facial expression, tone, and relationship dynamics; strong peer collaborator. | Interpersonal | Needs help grounding interpretations in specific physical evidence rather than general impressions. | In the pre-test, correctly identified a scene partner as "nervous" but gave a broad explanation. | Ask, "What did the body show you?" and have her cite one gesture, posture, or movement choice. |
+| Ben | Enjoys puzzles, patterns, and cause-effect explanations; organizes observations clearly. | Logical-mathematical | Can over-focus on correctness and hesitate during improvisation. | Built a clear trait-evidence chart but avoided performing his own example. | Let him use a quick evidence grid first, then rehearse one low-risk pose with a partner before sharing. |
+| Celia | Strong drawing and design instincts; quickly sketches scene images and character silhouettes. | Spatial | Needs to translate visual plans into embodied performance choices. | Drew a detailed character but did not show the character's inner trait through movement. | Have her sketch the pose, then choose three body details to perform: shape, level, and direction of gaze. |
+| Diego | Confident mover; uses posture, rhythm, and gesture expressively. | Bodily-kinesthetic | Needs to slow down and explain the meaning behind his choices. | Created a strong physical character but struggled to verbalize what trait the audience should infer. | After movement, prompt him to name the trait and identify the clearest physical clue. |
+| Elise | Strong with words, labels, and reflection; explains character motivation well. | Linguistic | Needs support showing ideas physically instead of relying mainly on verbal description. | Wrote a thoughtful character note but kept her body neutral during the scene. | Use "show before tell": first freeze in character, then add one sentence explaining the choice. |
+| Farah | Sensitive to rhythm, pacing, and sound; uses repeated beats and vocal tone creatively. | Musical | Needs to connect rhythm and sound choices to visible character traits. | Used a tapping rhythm to show impatience but did not connect it to posture or facial expression. | Pair rhythm with a body cue: tempo, gesture, and facial expression should all point to the same trait. |
+| Gabriel | Observes nature, animals, and environmental details; makes vivid imagined-world connections. | Naturalistic | Needs help keeping scene choices focused on character rather than setting alone. | Described the imagined world richly but gave fewer details about the character inside it. | Ask him to choose an animal or natural image as inspiration, then convert it into one human posture or walk. |
+| Hana | Reflective and self-aware; notices her own performance choices and growth areas. | Intrapersonal | Needs confidence sharing physical choices in front of peers. | Privately identified strong character traits but used very small gestures during group work. | Offer a partner rehearsal first and allow her to share a frozen pose rather than a full scene at first. |
+| Isaiah | Strong at building scenes with others; listens and adapts quickly in ensemble work. | Interpersonal | May let louder peers define the group's choices. | Supported his group well but did not contribute a distinct physical character choice. | Give him a specific role: choose the group's opening tableau or one gesture that signals his character's trait. |
+| Jun | Spatially aware; uses levels, distance, and stage picture effectively. | Spatial | Needs to explain how placement onstage communicates character relationships or traits. | Created a strong distance between characters but did not name what that distance revealed. | Ask him to label the stage picture: "near/far, high/low, open/closed—what does that tell the audience?" |
+| Kiara | Energetic performer; takes creative risks and helps scenes feel alive. | Bodily-kinesthetic | Needs boundaries and focus so movement choices stay purposeful. | Added many gestures, some of which distracted from the intended trait. | Use a "choose your best three" constraint: one posture, one gesture, one movement path. |
+| Leo | Enjoys sequence, rules, and categorizing examples; strong at comparing options. | Logical-mathematical | Needs to tolerate multiple valid interpretations in arts discussion. | Asked for the "right answer" when classmates interpreted the same pose differently. | Use two-column evidence: "What could this mean? What physical evidence supports it?" |
+| Maya | Expressive voice and strong storytelling; quickly invents character backstory. | Linguistic | Needs to avoid narrating everything and let the audience infer from physical action. | Explained the character's feelings before performing instead of letting the scene reveal them. | Try a silent first take, then add one line only after classmates infer the trait. |
+| Nico | Responds well to beats, chants, and repeated structures; helps peers keep timing. | Musical | Needs support expanding beyond rhythm into facial expression and body shape. | Used a clear repeated stomp to show determination but kept the upper body unchanged. | Layer the performance: rhythm first, then add shoulders, gaze, and hand position. |
+| Priya | Careful observer; strong empathy for characters and classmates; notices subtle cues. | Intrapersonal | Needs encouragement to participate earlier instead of waiting until ideas feel complete. | Offered an insightful interpretation after discussion but did not volunteer during the first share. | Use think-write-pair-share before whole group; invite her to share one observation, not a full answer. |
+
+## Lesson Plan 
+
+The purpose of this lesson plan is to teach concepts from American History using acting pedagogical techniques.
+
+## Session 1: Introducion and Pre-Test
+
+National Core Assessment Standard: TH.Cr.1.1.5.a
+
+_Identify physical qualities that might reveal a character's inner traits in the imagined world of our scenes_
+
+50 minutes
+
+5 min intro. Each time we meet, I'd like a table to meet a table.
+
+Until then- let's create our name plates. 
+
+Students liked the idea of name plates at their desk (like the U.N.)
+
+15-20 min test
+
+Most students expressed they had not learnt the content on the practice test
+
+10 min creative agreement
+
+15-20 min games
+
+### Game 1: Party-Party
+
+Puritan, Farmer, Dissenter, Quaker
+
+Werewolf, Super Hero, Famous Superstar, Teacher
+
+In this game, the students are all assigned roles at a party. Roles are based on historical and fantasy figures.
+
+Create a town meeting about a dissenter... should they be forced to leave the village-
+
+blacksmiths, farmers, merchants, fishermen
+
+## Main Conversation
+
+
+
+

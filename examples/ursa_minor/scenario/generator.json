@@ -4,8 +4,9 @@
         "prompt": "generator_system.txt"
     },
     {
-        "cmd": "print",
-        "prompt": "generator_prompt.txt"
+        "cmd": "input-from",
+        "enclosing-prompt": "generator_prompt.txt",
+        "human-prompt": "Teacher>"
     },
     {
         "cmd": "generate"
@@ -16,10 +17,17 @@
     },
     {
         "cmd": "input-from",
-        "human_prompt": "" 
+        "human-prompt": "Teacher>"
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest",
+        "actor-name": "generator"
     },
     {
         "cmd": "loop",
-        "step": 2
+        "step": 4
     }
 ]
