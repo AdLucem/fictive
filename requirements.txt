@@ -1,3 +1,16 @@
+transformers
+torch
+sglang
+vllm
+nltk
+numpy 
+openai
+anthropic 
+
+
+
+# Extra
+nvidia-ml-py
 anthropic
 aiohappyeyeballs
 aiohttp
