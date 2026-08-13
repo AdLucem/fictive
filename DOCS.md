@@ -32,6 +32,11 @@ helpers and SGLang integration.
 - `README.md`
   Minimal project description.
 
+- `pyproject.toml`
+  Standard Python packaging metadata for the repository. It defines the
+  installable project, runtime dependencies, editable-install support, and
+  package discovery for `fictive` and its subpackages.
+
 - `__init__.py`
   Compatibility package shim for vendored/submodule usage. If another
   repository checks this repo out as `fictive/`, importing `fictive` from the
@@ -102,6 +107,10 @@ helpers and SGLang integration.
 
 ### Package: `fictive/parser/`
 
+- `fictive/parser/__init__.py`
+  Marks `parser/` as an explicit Python subpackage and re-exports the main
+  parser helpers used by the rest of the package.
+
 - `fictive/parser/commands.py`
   Defines the command enum and the dataclass-backed command objects consumed by
   actors and the interpreter.
@@ -133,6 +142,17 @@ store state, and hands control across actors through the call stack when a
 The concrete LLM backend classes are provided by
 `llm-utils/llm_utils/pipelines.py`. The `fictive` package uses those shared
 pipeline definitions directly.
+
+For standard package installation, use:
+
+```bash
+pip install -e .
+```
+
+The package metadata in `pyproject.toml` declares the runtime dependencies,
+including the direct `llm-utils` dependency used by the actor and runtime
+modules. The repo-root compatibility shim remains for vendored/submodule use,
+but normal installation no longer depends on a sibling `llm-utils/` checkout.
 
 If this repository is included in another project as a git submodule at
 `fictive/`, code in the parent project can import the public API directly from

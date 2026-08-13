@@ -10,6 +10,7 @@ scikit-learn
 sentencepiece 
 openai
 anthropic 
+git+https://github.com/AdLucem/llm-utils.git
 
 
 
