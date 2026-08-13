@@ -1,6 +1,6 @@
 {
     "actors": [
-        "generator"
+        "generator", "action_steps_formatter", "lesson_plan_digest", "logical_mathematical"
     ],
     "names": 
         {"user": "User",

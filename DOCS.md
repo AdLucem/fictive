@@ -32,6 +32,12 @@ helpers and SGLang integration.
 - `README.md`
   Minimal project description.
 
+- `__init__.py`
+  Compatibility package shim for vendored/submodule usage. If another
+  repository checks this repo out as `fictive/`, importing `fictive` from the
+  parent project root re-exports the inner `fictive/` package API and aliases
+  the main submodules such as `fictive.actors` and `fictive.parser`.
+
 - `SCENE_CONFIG_LANGUAGE.md`
   Reference for the scene command language interpreted by `fictive`.
 
@@ -57,7 +63,8 @@ helpers and SGLang integration.
 
 - `fictive/__init__.py`
   Re-exports the main public entry points, including actors, the interpreter,
-  scenario loading helpers, and runtime helpers from `run.py`.
+  scenario loading helpers, and runtime helpers from `run.py`. It also defines
+  the explicit public export list used by the repo-root compatibility shim.
 
 - `fictive/actors.py`
   Defines `ActorConfig` and the base `Actor` class. Actors own instruction
@@ -126,6 +133,19 @@ store state, and hands control across actors through the call stack when a
 The concrete LLM backend classes are provided by
 `llm-utils/llm_utils/pipelines.py`. The `fictive` package uses those shared
 pipeline definitions directly.
+
+If this repository is included in another project as a git submodule at
+`fictive/`, code in the parent project can import the public API directly from
+the parent root:
+
+```python
+from fictive import Actor, ActorConfig, Interpreter
+from fictive.data_structures import Store
+```
+
+The repo-root `__init__.py` forwards those imports to the inner
+`fictive/` package so parent projects do not need to import from
+`fictive.fictive`.
 
 ## Scenario Configuration
 

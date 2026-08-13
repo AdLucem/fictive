@@ -52,17 +52,17 @@ def _main_args_parser():
     parser.add_argument(
         "--model", 
         help="Model url",
-        default="coder3101/Qwen3.5-27B-heretic"
+        default="MiniMax-M2.7"
     )
     parser.add_argument(
         "--pipeline-type", 
         choices=["sglang", "transformers", "minimax", "mock"],
-        default="sglang", 
+        default="minimax", 
         help="Which backend to use for running the model. If backend is sglang, then SGLang request arguments should be specified and SGLang server should be running."
     )
     parser.add_argument(
         "--pipeline-log-level",
-        default=None,
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level for the LLM pipeline (default: same as main Actor logging level).",
     )

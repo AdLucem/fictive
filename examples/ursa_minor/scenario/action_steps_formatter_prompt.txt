@@ -1,0 +1,11 @@
+Reformat the following adapted lesson-plan explanation into the classroom-action-steps format.
+
+Important constraints:
+- Use only information from the source text.
+- Do not invent student names, support needs, timing, materials, or prompts.
+- If a detail is missing, use a general phrase such as “Whole class,” “As needed,” or “Not specified.”
+- Keep the output concise enough for a teacher to scan during class.
+
+Source text:
+
+{INPUT_FROM}

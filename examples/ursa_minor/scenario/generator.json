@@ -4,30 +4,11 @@
         "prompt": "generator_system.txt"
     },
     {
-        "cmd": "input-from",
-        "enclosing-prompt": "generator_prompt.txt",
-        "human-prompt": "Teacher>"
-    },
-    {
-        "cmd": "generate"
-    },
-    {
-        "cmd": "print-latest",
-        "actor-name": "generator"
-    },
-    {
-        "cmd": "input-from",
-        "human-prompt": "Teacher>"
-    },
-    {
-        "cmd": "generate"
-    },
-    {
-        "cmd": "print-latest",
-        "actor-name": "generator"
+        "cmd": "run-actor",
+        "actor-name": "lesson_plan_digest"
     },
     {
         "cmd": "loop",
-        "step": 4
+        "step": 1
     }
 ]

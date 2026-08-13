@@ -1,0 +1,30 @@
+[
+    {
+        "cmd": "refresh"
+    },
+    {
+        "cmd": "system",
+        "prompt": "lesson_plan_digest_system.txt"
+    },
+    {
+        "cmd": "generate", 
+        "prompt": "flics_session.txt" 
+    },
+    {
+        "cmd": "print-latest"
+    },
+    {
+        "cmd": "input-from",
+        "human_prompt": "human> "
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest"
+    },
+    {
+        "cmd": "loop",
+        "step": 5
+    }
+]

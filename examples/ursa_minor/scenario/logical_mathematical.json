@@ -1,0 +1,20 @@
+[
+    {
+        "cmd": "refresh"
+    },
+    {
+        "cmd": "system",
+        "prompt": "logical_mathematical_system.txt"
+    },
+    {
+        "cmd": "input-from",
+        "input_from_actor": "generator", 
+        "enclosing_prompt": "logical_mathematical_prompt.txt" 
+    },
+    {
+        "cmd": "generate"
+    },
+    {
+        "cmd": "print-latest"
+    }
+]
