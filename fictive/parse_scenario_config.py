@@ -111,26 +111,27 @@ def load_scenario_config(scenario_dir):
             actor_defn = json.load(f)
             actor_definitions[actor_name] = actor_defn
 
-    def resolve_actor_definition_paths(value):
+    def resolve_actor_definition_paths(name, value):
         
         if value == "":
             return value
      
         elif isinstance(value, dict):
-            return {k: resolve_actor_definition_paths(v) for k, v in value.items()}
+            return {k: resolve_actor_definition_paths(name, v) for k, v in value.items()}
 
         elif isinstance(value, list):
-            return [resolve_actor_definition_paths(v) for v in value]
+            return [resolve_actor_definition_paths(name, v) for v in value]
 
         elif isinstance(value, str) and not os.path.isabs(value):
-            scenario_path = os.path.join(scenario_dir, value)
+            actor_base_path = actor_defn_paths.get(name)
+            scenario_path = os.path.join(actor_defn_path, value)
             if os.path.exists(scenario_path):
                 return scenario_path
 
         return value
 
     actor_definitions = {
-        actor_name: resolve_actor_definition_paths(actor_defn)
+        actor_name: resolve_actor_definition_paths(actor_name, actor_defn)
         for actor_name, actor_defn in actor_definitions.items()
     }
 
