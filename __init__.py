@@ -29,3 +29,4 @@ for _submodule_name in (
     _attr_name = _submodule_name.rsplit(".", 1)[-1]
     if "." not in _submodule_name:
         globals()[_attr_name] = _module
+
