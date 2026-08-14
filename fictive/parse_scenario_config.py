@@ -1,6 +1,7 @@
 import os 
 import json 
 import re 
+from pathlib import Path
 
 def read_multirole_prompt(text):
 
@@ -123,7 +124,7 @@ def load_scenario_config(scenario_dir):
             return [resolve_actor_definition_paths(name, v) for v in value]
 
         elif isinstance(value, str) and not os.path.isabs(value):
-            actor_base_path = actor_defn_paths.get(name)
+            actor_base_path = Path(actor_defn_paths.get(name)).parent
             scenario_path = os.path.join(actor_defn_path, value)
             if os.path.exists(scenario_path):
                 return scenario_path
