@@ -125,7 +125,7 @@ def load_scenario_config(scenario_dir):
 
         elif isinstance(value, str) and not os.path.isabs(value):
             actor_base_path = Path(actor_defn_paths.get(name)).parent
-            scenario_path = os.path.join(actor_defn_path, value)
+            scenario_path = os.path.join(actor_base_path, value)
             if os.path.exists(scenario_path):
                 return scenario_path
 

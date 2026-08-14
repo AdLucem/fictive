@@ -52,7 +52,7 @@ Params:
 - human-prompt: Optional[str | Path] = "If specified: prompt/prompt variable in store/prompt file to prompt human user with. Note that this takes precedence over `input_from_agent`.
 
 [Input Type: agent]
-- input_from_agent: Optional[str] = "Name of the agent to take input from. If not defined, we go to next input type."
+- input_from_actor: Optional[str] = "Name of the actor to take input from. If not defined, we go to next input type."
 
 [Input Type: store]
 - input_from_store: Optional[str] = "Name of the variable in the store from which to read input from."
