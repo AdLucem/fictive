@@ -90,10 +90,18 @@ def load_scenario_config(scenario_dir):
             actor_output_formats[actor_name] = pattern
         schema["actor_output_formats"] = actor_output_formats
 
-    # Load actor definitions from <actorname>.json files
+    # Load actor definitions from defn. files
+    actor_defn_paths = schema.get("actor_definitions")
+    if actor_defn_paths is None:
+        actor_defn_paths = {}
+    for actor_name in schema["actors"]:
+        if actor_name not in actor_defn_paths:
+            actor_defn_path = os.path.join(scenario_dir, f"{actor_name}.json")
+            actor_defn_paths[actor_name] = actor_defn_path    
+    
     actor_definitions = {}
     for actor_name in schema["actors"]:
-        actor_defn_path = os.path.join(scenario_dir, f"{actor_name}.json")
+        actor_defn_path = actor_defn_paths.get(actor_name)
 
         if not os.path.isfile(actor_defn_path):
             raise Exception(f"Error: definition file {actor_defn_path} for actor {actor_name} not found.")
