@@ -20,6 +20,7 @@ class Cmd(StrEnum):
     REFRESH = "refresh"
     LOOP = "loop"
     ASSIGN = "assign"
+    WRITE = "write"
     PRINT = "print"
     PRINT_LATEST = "print-latest"
     COND = "cond"
@@ -38,6 +39,7 @@ class Cmd(StrEnum):
             Cmd.REFRESH: REFRESH,
             Cmd.LOOP: LOOP,
             Cmd.ASSIGN: ASSIGN,
+            Cmd.WRITE: WRITE,
             Cmd.PRINT: PRINT,
             Cmd.PRINT_LATEST: PRINT_LATEST,
             Cmd.COND: COND,
@@ -134,6 +136,16 @@ class ASSIGN(CommandObj):
     name = "assign"
     var_name: str
     value: str | pathlib.Path
+
+
+@dataclass
+class WRITE(CommandObj):
+    """Write text or actor history to a file."""
+
+    name = "write"
+    path: str | pathlib.Path
+    read_from: Optional[str | pathlib.Path | dict] = None
+    write_history: Optional[str] = None
 
 @dataclass
 class PRINT(CommandObj):

@@ -1,5 +1,8 @@
 import contextlib
 import io
+import json
+import os
+import tempfile
 import unittest
 
 from fictive import ActorConfig, Interpreter
@@ -113,3 +116,45 @@ class CondCommandTests(unittest.TestCase):
         self.assertEqual(interpreter.exec_current(), -1)
 
         self.assertEqual(interpreter.store.get("mood"), "low")
+
+
+class WriteCommandTests(unittest.TestCase):
+    def test_write_command_writes_latest_output_relative_to_storage_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            actor = make_actor(
+                "writer",
+                [{"cmd": "write", "path": "outputs/latest.txt"}],
+            )
+            actor.storage_dir = tmpdir
+            actor.history.add({"role": "assistant", "content": "final answer"})
+
+            interpreter = Interpreter([actor], main_actor_name="writer")
+            self.assertEqual(interpreter.exec_current(), -1)
+
+            with open(os.path.join(tmpdir, "outputs", "latest.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "final answer")
+
+    def test_write_command_supports_read_from_and_write_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = os.path.join(tmpdir, "source.txt")
+            with open(source_path, "w", encoding="utf-8") as f:
+                f.write("file contents")
+
+            writer = make_actor(
+                "writer",
+                [
+                    {"cmd": "write", "path": "copied.txt", "read_from": "source.txt"},
+                    {"cmd": "write", "path": "history.json", "write_history": "writer"},
+                ],
+            )
+            writer.storage_dir = tmpdir
+            writer.history.add({"role": "assistant", "content": "history entry"})
+
+            interpreter = Interpreter([writer], main_actor_name="writer")
+            self.assertEqual(interpreter.exec_current().name, "writer")
+            self.assertEqual(interpreter.exec_current(), -1)
+
+            with open(os.path.join(tmpdir, "copied.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "file contents")
+            with open(os.path.join(tmpdir, "history.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f), [{"role": "assistant", "content": "history entry"}])

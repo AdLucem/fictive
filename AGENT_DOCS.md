@@ -75,12 +75,12 @@ Command parsing lives in `fictive/parser/commands.py`.
 The key pieces are:
 
 - `Cmd`
-  Enum mapping command names such as `system`, `generate`, `input-from`, and
-  `cond` to their dataclass implementations.
+  Enum mapping command names such as `system`, `generate`, `input-from`,
+  `write`, and `cond` to their dataclass implementations.
 
 - Command dataclasses
   Each command has a dataclass like `SYSTEM`, `GENERATE`, `INPUT_FROM`,
-  `RUN_ACTOR`, `ASSIGN`, `PRINT`, `PRINT_LATEST`, and `COND`.
+  `RUN_ACTOR`, `ASSIGN`, `WRITE`, `PRINT`, `PRINT_LATEST`, and `COND`.
 
 - `parse_command_dict(instr)`
   Shared helper that:
@@ -137,7 +137,7 @@ The interpreter owns:
 
 - `exec_map`
   Maps command names to concrete handler methods like `exec_SYSTEM`,
-  `exec_GENERATE`, `exec_INPUT_FROM`, and `exec_COND`.
+  `exec_GENERATE`, `exec_INPUT_FROM`, `exec_WRITE`, and `exec_COND`.
 
 ### 7. Step Execution
 
@@ -189,6 +189,11 @@ The main command handlers are:
 
 - `assign`
   Writes a value directly into the shared store.
+
+- `write`
+  Writes either the current actor's latest output, parsed prompt-like input,
+  or another actor's serialized history to a file under the scenario storage
+  directory.
 
 - `print` / `print-latest`
   Debug/inspection helpers.

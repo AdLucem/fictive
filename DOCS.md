@@ -89,9 +89,10 @@ helpers and SGLang integration.
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
-  `system`, `generate`, `input-from`, `run-actor`, `assign`, `cond`, and
-  `print`. Conditional branches queue nested command blocks and evaluate
-  expressions against the shared interpreter store.
+  `system`, `generate`, `input-from`, `run-actor`, `assign`, `write`,
+  `cond`, and `print`. Conditional branches queue nested command blocks,
+  evaluate expressions against the shared interpreter store, and `write` can
+  persist latest outputs, prompt-like inputs, or actor histories to files.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -113,7 +114,8 @@ helpers and SGLang integration.
 
 - `fictive/parser/commands.py`
   Defines the command enum and the dataclass-backed command objects consumed by
-  actors and the interpreter.
+  actors and the interpreter, including the scene-language `write` command for
+  file output.
 
 - `fictive/parser/expressions.py`
   Expression helpers for the scenario language.
@@ -185,7 +187,7 @@ Each actor JSON file contains that actor's instruction sequence in the command
 language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
 ordered conditional branches through the `cond` command, which evaluates
 store-backed expressions and queues nested command blocks for the first
-matching branch.
+matching branch, plus file output through the `write` command.
 
 When actor definitions contain relative paths, `load_scenario_config(...)`
 resolves them relative to the scenario directory if the target exists there.

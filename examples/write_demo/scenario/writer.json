@@ -1,0 +1,34 @@
+[
+  {
+    "cmd": "system",
+    "prompt": "writer_system.txt"
+  },
+  {
+    "cmd": "generate",
+    "prompt": "Generate one deterministic line for the write demo."
+  },
+  {
+    "cmd": "write",
+    "path": "outputs/latest.txt"
+  },
+  {
+    "cmd": "assign",
+    "name": "store-message",
+    "value": "Hello from the store."
+  },
+  {
+    "cmd": "write",
+    "path": "outputs/latest.txt",
+    "read_from": "var:store-message"
+  },
+  {
+    "cmd": "write",
+    "path": "outputs/from-file.txt",
+    "read_from": "seed.txt"
+  },
+  {
+    "cmd": "write",
+    "path": "outputs/history.json",
+    "write_history": "writer"
+  }
+]
