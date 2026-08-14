@@ -46,9 +46,15 @@ def read_all_prompts(base_dir, actors):
     for actor in actors:
         actor_name = actor["name"]
         actor_type = actor["type"]
-        systemfile = os.path.join(base_dir, f"{actor_name}_system.txt")
-        mainfile = os.path.join(base_dir, f"{actor_name}_prompt.txt")
-        sequencefile = os.path.join(base_dir, f"{actor_name}_sequence.txt")
+
+        if "source" in actor:
+            actor_source = os.path.join(base_dir, actor["source"])
+        else:
+            actor_source = base_dir
+
+        systemfile = os.path.join(actor_source, f"{actor_name}_system.txt")
+        mainfile = os.path.join(actor_source, f"{actor_name}_prompt.txt")
+        sequencefile = os.path.join(actor_source, f"{actor_name}_sequence.txt")
 
         systemprompt = read_prompt_file(systemfile, "system")
         mainprompt = read_prompt_file(mainfile, "user")
