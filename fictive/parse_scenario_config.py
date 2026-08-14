@@ -93,6 +93,7 @@ def load_scenario_config(scenario_dir):
 
     # Load actor definitions from defn. files
     actor_defn_paths = schema.get("actor_definitions")
+    print("DEFINITION PATHS:", actor_defn_paths)
     if actor_defn_paths is None:
         actor_defn_paths = {}
     for actor_name in schema["actors"]:
