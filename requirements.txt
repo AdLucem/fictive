@@ -1,15 +1,17 @@
-transformers
-torch
-torchvision
-sglang
 vllm
+torch 
+torchvision 
+accelerate 
+transformers
+sglang 
 nltk
 numpy
 scipy
 scikit-learn
 sentencepiece 
 openai
-anthropic 
+anthropic
+lark
 git+https://github.com/AdLucem/llm-utils.git
 
 

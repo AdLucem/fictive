@@ -13,6 +13,9 @@ RUN apt-get update --yes && \
     DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
         wget \
         curl \
+        emacs \
+        tmux \
+        tree \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
@@ -23,7 +26,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --pre -r requirements.txt 
 
 # Set Hugging Face cache directory
-# ENV HF_HOME=/app/models
+ENV HF_HOME=/app/models
 ENV HF_HUB_ENABLE_HF_TRANSFER=0
 
 # Copy application files
