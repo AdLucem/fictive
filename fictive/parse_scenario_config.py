@@ -1,6 +1,7 @@
 import os 
 import json 
 import re 
+from pathlib import Path
 
 def read_multirole_prompt(text):
 
@@ -46,9 +47,15 @@ def read_all_prompts(base_dir, actors):
     for actor in actors:
         actor_name = actor["name"]
         actor_type = actor["type"]
-        systemfile = os.path.join(base_dir, f"{actor_name}_system.txt")
-        mainfile = os.path.join(base_dir, f"{actor_name}_prompt.txt")
-        sequencefile = os.path.join(base_dir, f"{actor_name}_sequence.txt")
+
+        if "source" in actor:
+            actor_source = os.path.join(base_dir, actor["source"])
+        else:
+            actor_source = base_dir
+
+        systemfile = os.path.join(actor_source, f"{actor_name}_system.txt")
+        mainfile = os.path.join(actor_source, f"{actor_name}_prompt.txt")
+        sequencefile = os.path.join(actor_source, f"{actor_name}_sequence.txt")
 
         systemprompt = read_prompt_file(systemfile, "system")
         mainprompt = read_prompt_file(mainfile, "user")
@@ -84,10 +91,18 @@ def load_scenario_config(scenario_dir):
             actor_output_formats[actor_name] = pattern
         schema["actor_output_formats"] = actor_output_formats
 
-    # Load actor definitions from <actorname>.json files
+    # Load actor definitions from defn. files
+    actor_defn_paths = schema.get("actor_definitions")
+    if actor_defn_paths is None:
+        actor_defn_paths = {}
+    for actor_name in schema["actors"]:
+        if actor_name not in actor_defn_paths:
+            actor_defn_path = os.path.join(scenario_dir, f"{actor_name}.json")
+            actor_defn_paths[actor_name] = actor_defn_path    
+    
     actor_definitions = {}
     for actor_name in schema["actors"]:
-        actor_defn_path = os.path.join(scenario_dir, f"{actor_name}.json")
+        actor_defn_path = actor_defn_paths.get(actor_name)
 
         if not os.path.isfile(actor_defn_path):
             raise Exception(f"Error: definition file {actor_defn_path} for actor {actor_name} not found.")
@@ -97,26 +112,27 @@ def load_scenario_config(scenario_dir):
             actor_defn = json.load(f)
             actor_definitions[actor_name] = actor_defn
 
-    def resolve_actor_definition_paths(value):
+    def resolve_actor_definition_paths(name, value):
         
         if value == "":
             return value
      
         elif isinstance(value, dict):
-            return {k: resolve_actor_definition_paths(v) for k, v in value.items()}
+            return {k: resolve_actor_definition_paths(name, v) for k, v in value.items()}
 
         elif isinstance(value, list):
-            return [resolve_actor_definition_paths(v) for v in value]
+            return [resolve_actor_definition_paths(name, v) for v in value]
 
         elif isinstance(value, str) and not os.path.isabs(value):
-            scenario_path = os.path.join(scenario_dir, value)
+            actor_base_path = Path(actor_defn_paths.get(name)).parent
+            scenario_path = os.path.join(actor_base_path, value)
             if os.path.exists(scenario_path):
                 return scenario_path
 
         return value
 
     actor_definitions = {
-        actor_name: resolve_actor_definition_paths(actor_defn)
+        actor_name: resolve_actor_definition_paths(actor_name, actor_defn)
         for actor_name, actor_defn in actor_definitions.items()
     }
 

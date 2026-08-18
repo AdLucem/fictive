@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fictive"
+version = "0.1.0"
+description = "A library for creating LLM-based interactive fiction systems."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "anthropic",
+    "lark",
+    "llm-utils @ git+https://github.com/AdLucem/llm-utils.git",
+    "nltk",
+    "numpy",
+    "openai",
+    "scikit-learn",
+    "scipy",
+    "sentencepiece",
+    "sglang",
+    "torch",
+    "torchvision",
+    "transformers",
+    "vllm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["fictive*"]

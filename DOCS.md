@@ -32,6 +32,17 @@ helpers and SGLang integration.
 - `README.md`
   Minimal project description.
 
+- `pyproject.toml`
+  Standard Python packaging metadata for the repository. It defines the
+  installable project, runtime dependencies, editable-install support, and
+  package discovery for `fictive` and its subpackages.
+
+- `__init__.py`
+  Compatibility package shim for vendored/submodule usage. If another
+  repository checks this repo out as `fictive/`, importing `fictive` from the
+  parent project root re-exports the inner `fictive/` package API and aliases
+  the main submodules such as `fictive.actors` and `fictive.parser`.
+
 - `SCENE_CONFIG_LANGUAGE.md`
   Reference for the scene command language interpreted by `fictive`.
 
@@ -57,7 +68,8 @@ helpers and SGLang integration.
 
 - `fictive/__init__.py`
   Re-exports the main public entry points, including actors, the interpreter,
-  scenario loading helpers, and runtime helpers from `run.py`.
+  scenario loading helpers, and runtime helpers from `run.py`. It also defines
+  the explicit public export list used by the repo-root compatibility shim.
 
 - `fictive/actors.py`
   Defines `ActorConfig` and the base `Actor` class. Actors own instruction
@@ -77,9 +89,10 @@ helpers and SGLang integration.
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
-  `system`, `generate`, `input-from`, `run-actor`, `assign`, `cond`, and
-  `print`. Conditional branches queue nested command blocks and evaluate
-  expressions against the shared interpreter store.
+  `system`, `generate`, `input-from`, `run-actor`, `assign`, `write`,
+  `cond`, and `print`. Conditional branches queue nested command blocks,
+  evaluate expressions against the shared interpreter store, and `write` can
+  persist latest outputs, prompt-like inputs, or actor histories to files.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -95,9 +108,14 @@ helpers and SGLang integration.
 
 ### Package: `fictive/parser/`
 
+- `fictive/parser/__init__.py`
+  Marks `parser/` as an explicit Python subpackage and re-exports the main
+  parser helpers used by the rest of the package.
+
 - `fictive/parser/commands.py`
   Defines the command enum and the dataclass-backed command objects consumed by
-  actors and the interpreter.
+  actors and the interpreter, including the scene-language `write` command for
+  file output.
 
 - `fictive/parser/expressions.py`
   Expression helpers for the scenario language.
@@ -127,6 +145,30 @@ The concrete LLM backend classes are provided by
 `llm-utils/llm_utils/pipelines.py`. The `fictive` package uses those shared
 pipeline definitions directly.
 
+For standard package installation, use:
+
+```bash
+pip install -e .
+```
+
+The package metadata in `pyproject.toml` declares the runtime dependencies,
+including the direct `llm-utils` dependency used by the actor and runtime
+modules. The repo-root compatibility shim remains for vendored/submodule use,
+but normal installation no longer depends on a sibling `llm-utils/` checkout.
+
+If this repository is included in another project as a git submodule at
+`fictive/`, code in the parent project can import the public API directly from
+the parent root:
+
+```python
+from fictive import Actor, ActorConfig, Interpreter
+from fictive.data_structures import Store
+```
+
+The repo-root `__init__.py` forwards those imports to the inner
+`fictive/` package so parent projects do not need to import from
+`fictive.fictive`.
+
 ## Scenario Configuration
 
 Scenario loading expects a directory with this general shape:
@@ -145,7 +187,7 @@ Each actor JSON file contains that actor's instruction sequence in the command
 language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
 ordered conditional branches through the `cond` command, which evaluates
 store-backed expressions and queues nested command blocks for the first
-matching branch.
+matching branch, plus file output through the `write` command.
 
 When actor definitions contain relative paths, `load_scenario_config(...)`
 resolves them relative to the scenario directory if the target exists there.

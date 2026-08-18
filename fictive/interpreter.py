@@ -47,6 +47,7 @@ class Interpreter:
             "refresh": self.exec_REFRESH,
             "loop": self.exec_LOOP,
             "assign": self.exec_ASSIGN,
+            "write": self.exec_WRITE,
             "print": self.exec_PRINT,
             "print-latest": self.exec_PRINT_LATEST,
             "cond": self.exec_COND,
@@ -151,6 +152,33 @@ class Interpreter:
                     actor_name: str) -> Actor:
         self.store.set(cmd.var_name, cmd.value)
         return self.actor_fetch(actor_name)
+
+    def exec_WRITE(self,
+                   cmd: type[CommandObj],
+                   actor_name: str) -> Actor:
+        acting_actor = self.actor_fetch(actor_name)
+        write_path = pathlib.Path(cmd.path)
+        write_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if (cmd.read_from is not None) and (cmd.write_history is not None):
+            raise ValueError("write command accepts only one of read_from or write_history.")
+
+        if cmd.write_history is not None:
+            history_actor = self.actor_fetch(cmd.write_history)
+            history_actor.history.save(write_path)
+            return acting_actor
+
+        if cmd.read_from is not None:
+            output_text = self.parse_prompt_object(cmd.read_from)
+        else:
+            output_text = acting_actor.get_latest_output()
+            if isinstance(output_text, dict) and ("content" in output_text):
+                output_text = output_text["content"]
+
+        with open(write_path, "w", encoding="utf-8") as f:
+            f.write(str(output_text))
+
+        return acting_actor
 
     def exec_LOOP(self,
                   cmd: type[CommandObj],

@@ -1,6 +1,17 @@
-flash-attn-4==4.0.0b14
-sglang==0.5.10
 transformers
+torch
+torchvision
+sglang
+vllm
+nltk
+numpy
+scipy
+scikit-learn
+sentencepiece 
 openai
-lark
+anthropic 
+git+https://github.com/AdLucem/llm-utils.git
+
+
+
 

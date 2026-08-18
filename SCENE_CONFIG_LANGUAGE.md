@@ -52,7 +52,7 @@ Params:
 - human-prompt: Optional[str | Path] = "If specified: prompt/prompt variable in store/prompt file to prompt human user with. Note that this takes precedence over `input_from_agent`.
 
 [Input Type: agent]
-- input_from_agent: Optional[str] = "Name of the agent to take input from. If not defined, we go to next input type."
+- input_from_actor: Optional[str] = "Name of the actor to take input from. If not defined, we go to next input type."
 
 [Input Type: store]
 - input_from_store: Optional[str] = "Name of the variable in the store from which to read input from."
@@ -152,4 +152,18 @@ Example:
     }
   ]
 }
+```
+
+### Command: `write`
+
+Write given output to a file. By default, writes the calling actor's latest output to file.
+
+```
+Params:
+
+- path : str = "Path of file to write to. If a relative filepath, then it is assumed to be relative to the top-level directory"
+
+- read_from : Optional[str | Path] = "If specified, read input from text/variable in store/file to read text from (refer to earlier implementations of `prompt` to see the types of input you can give), and write the text to the given write path."
+
+- write_history : Optional[str] = "If specified, write the entire history of the given actor. Use `actor.history.read()` to get the history."
 ```
