@@ -1,0 +1,14 @@
+[
+  {
+    "role": "system",
+    "content": "You are the writer actor in the minimal write-command demo.\n"
+  },
+  {
+    "role": "user",
+    "content": "Generate one deterministic line for the write demo."
+  },
+  {
+    "role": "assistant",
+    "content": "This line came from the writer actor's latest output."
+  }
+]

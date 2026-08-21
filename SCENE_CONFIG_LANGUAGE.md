@@ -158,12 +158,14 @@ Example:
 
 Write given output to a file. By default, writes the calling actor's latest output to file.
 
+
 ```
 Params:
 
 - path : str = "Path of file to write to. If a relative filepath, then it is assumed to be relative to the top-level directory"
 
 - read_from : Optional[str | Path] = "If specified, read input from text/variable in store/file to read text from (refer to earlier implementations of `prompt` to see the types of input you can give), and write the text to the given write path."
+- overwrite : Bool = False := specifies whether to overwrite the file with given contents, or append the contents to the existing file
 
 - write_history : Optional[str] = "If specified, write the entire history of the given actor. Use `actor.history.read()` to get the history."
 ```

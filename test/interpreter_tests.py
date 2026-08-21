@@ -134,6 +134,39 @@ class WriteCommandTests(unittest.TestCase):
             with open(os.path.join(tmpdir, "outputs", "latest.txt"), encoding="utf-8") as f:
                 self.assertEqual(f.read(), "final answer")
 
+    def test_write_command_appends_by_default_and_overwrites_when_requested(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "outputs", "latest.txt")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("existing")
+
+            append_actor = make_actor(
+                "append-writer",
+                [{"cmd": "write", "path": "outputs/latest.txt"}],
+            )
+            append_actor.storage_dir = tmpdir
+            append_actor.history.add({"role": "assistant", "content": " plus more"})
+
+            append_interpreter = Interpreter([append_actor], main_actor_name="append-writer")
+            self.assertEqual(append_interpreter.exec_current(), -1)
+
+            with open(output_path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "existing plus more")
+
+            overwrite_actor = make_actor(
+                "overwrite-writer",
+                [{"cmd": "write", "path": "outputs/latest.txt", "overwrite": True}],
+            )
+            overwrite_actor.storage_dir = tmpdir
+            overwrite_actor.history.add({"role": "assistant", "content": "replacement"})
+
+            overwrite_interpreter = Interpreter([overwrite_actor], main_actor_name="overwrite-writer")
+            self.assertEqual(overwrite_interpreter.exec_current(), -1)
+
+            with open(output_path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "replacement")
+
     def test_write_command_supports_read_from_and_write_history(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             source_path = os.path.join(tmpdir, "source.txt")

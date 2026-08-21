@@ -157,7 +157,7 @@ class Interpreter:
                    cmd: type[CommandObj],
                    actor_name: str) -> Actor:
         acting_actor = self.actor_fetch(actor_name)
-        write_path = pathlib.Path(cmd.path)
+        write_path = self.resolve_actor_path(cmd.path, acting_actor)
         write_path.parent.mkdir(parents=True, exist_ok=True)
 
         if (cmd.read_from is not None) and (cmd.write_history is not None):
@@ -169,13 +169,15 @@ class Interpreter:
             return acting_actor
 
         if cmd.read_from is not None:
-            output_text = self.parse_prompt_object(cmd.read_from)
+            read_from = self.resolve_prompt_path(cmd.read_from, acting_actor)
+            output_text = self.parse_prompt_object(read_from)
         else:
             output_text = acting_actor.get_latest_output()
             if isinstance(output_text, dict) and ("content" in output_text):
                 output_text = output_text["content"]
 
-        with open(write_path, "w", encoding="utf-8") as f:
+        write_mode = "w" if cmd.overwrite else "a"
+        with open(write_path, write_mode, encoding="utf-8") as f:
             f.write(str(output_text))
 
         return acting_actor
@@ -404,6 +406,31 @@ class Interpreter:
         # else just assume that the string is the prompt
         else:
             return prompt_obj
+
+    def resolve_actor_path(self, path_value: str | pathlib.Path, actor: Actor) -> pathlib.Path:
+        path = pathlib.Path(path_value)
+        if path.is_absolute() or (not actor.storage_dir):
+            return path
+        return pathlib.Path(actor.storage_dir) / path
+
+    def resolve_prompt_path(self, prompt_obj: str | pathlib.Path | dict, actor: Actor):
+        if isinstance(prompt_obj, pathlib.Path):
+            return self.resolve_actor_path(prompt_obj, actor)
+
+        if not isinstance(prompt_obj, str):
+            return prompt_obj
+
+        if prompt_obj.startswith("var:"):
+            return prompt_obj
+
+        if os.path.isabs(prompt_obj) or os.path.isfile(prompt_obj):
+            return prompt_obj
+
+        resolved_path = self.resolve_actor_path(prompt_obj, actor)
+        if resolved_path.is_file():
+            return resolved_path
+
+        return prompt_obj
 
     def store_fetch(self, key):
 

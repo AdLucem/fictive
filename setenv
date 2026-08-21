@@ -3,5 +3,5 @@
 export PYTHONPATH=$PYTHONPATH:$PWD
 export HF_HOME="/scratch/general/vast/u1419632/"
 
-# module load cuda/12.9.0
-# module load gcc/11.2.0
+module load cuda/12.9.0
+module load gcc/11.2.0

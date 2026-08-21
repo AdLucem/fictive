@@ -40,4 +40,8 @@ Only open the underlying implementation file after consulting
 `AGENT_DOCS.md`, and only when `AGENT_DOCS.md` does not provide a clear enough
 picture for the task.
 
+## Do Not Automatically Generate A Test File
+
+When implementing a module, do NOT automatically generate a test file in the `test/` directory. This is a waste of tokens. Only generate tests if you are specifically asked to.
+
 

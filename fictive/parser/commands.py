@@ -145,6 +145,7 @@ class WRITE(CommandObj):
     name = "write"
     path: str | pathlib.Path
     read_from: Optional[str | pathlib.Path | dict] = None
+    overwrite: bool = False
     write_history: Optional[str] = None
 
 @dataclass
