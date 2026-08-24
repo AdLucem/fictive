@@ -2,8 +2,8 @@ import json
 import traceback
 from typing import Callable
 
-from ..actors import Actor
-from ..interpreter import Interpreter
+from .actors import Actor
+from .interpreter import Interpreter
 
 
 class DebuggerSession:
