@@ -29,6 +29,9 @@ def run_single_actor(interpreter: Interpreter, actor_name: str):
                 f"Input for {cmd.input_from_actor}:",
                 store_to_history=False,
             )
+        elif cmd.input_from_file:
+            file_path = self.resolve_prompt_path(cmd.input_from_file, acting_actor)
+            input_msg = self.parse_prompt_object(prompt_obj=file_path)
         elif cmd.input_from_store:
             try:
                 input_msg = self.store_fetch(cmd.input_from_store)
@@ -39,7 +42,7 @@ def run_single_actor(interpreter: Interpreter, actor_name: str):
                 )
                 self.store.set(cmd.input_from_store, input_msg)
         else:
-            raise Exception("Input type unclear: neither human_prompt nor input_from_actor nor input_from_store were specified in input-from command")
+            raise Exception("Input type unclear: neither human_prompt nor input_from_actor nor input_from_file nor input_from_store were specified in input-from command")
 
         complete_input = input_msg
         if isinstance(input_msg, dict):

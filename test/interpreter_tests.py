@@ -191,3 +191,21 @@ class WriteCommandTests(unittest.TestCase):
                 self.assertEqual(f.read(), "file contents")
             with open(os.path.join(tmpdir, "history.json"), encoding="utf-8") as f:
                 self.assertEqual(json.load(f), [{"role": "assistant", "content": "history entry"}])
+
+
+class InputFromCommandTests(unittest.TestCase):
+    def test_input_from_file_reads_relative_to_storage_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "teacher_input.txt")
+            with open(input_path, "w", encoding="utf-8") as f:
+                f.write("lesson notes")
+
+            actor = make_actor(
+                "reader",
+                [{"cmd": "input-from", "input_from_file": "teacher_input.txt", "store": "notes"}],
+            )
+            actor.storage_dir = tmpdir
+
+            interpreter = Interpreter([actor], main_actor_name="reader")
+            self.assertEqual(interpreter.exec_current(), -1)
+            self.assertEqual(interpreter.store.get("notes"), "lesson notes")

@@ -243,13 +243,18 @@ class Interpreter:
             logging.debug(f"Input from actor {cmd.input_from_actor}")
             input_msg = self.actor_fetch(cmd.input_from_actor).get_latest_output()
 
+        elif cmd.input_from_file:
+            file_path = self.resolve_prompt_path(cmd.input_from_file, acting_actor)
+            logging.debug(f"Input from file {file_path}")
+            input_msg = self.parse_prompt_object(prompt_obj=file_path)
+
         # If input type is store
         elif cmd.input_from_store:
             logging.debug(f"Input from store variable {cmd.input_from_store}")
             input_msg = self.store_fetch(cmd.input_from_store)
 
         else:
-            raise Exception("Input type unclear: neither human_prompt nor input_from_actor nor input_from_store were specified in input-from command")
+            raise Exception("Input type unclear: neither human_prompt nor input_from_actor nor input_from_file nor input_from_store were specified in input-from command")
 
         # If enclosing prompt is given, enclose the input
         # or append it to end

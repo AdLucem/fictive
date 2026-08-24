@@ -90,6 +90,7 @@ class INPUT_FROM(CommandObj):
 
     human_prompt: Optional[str | pathlib.Path] = None
     input_from_actor: Optional[str] = None
+    input_from_file: Optional[str | pathlib.Path] = None
     input_from_store: Optional[str] = None
 
     history: bool = True

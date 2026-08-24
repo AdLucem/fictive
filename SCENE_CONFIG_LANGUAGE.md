@@ -38,7 +38,6 @@ Params:
 
 ### Command: `input-from`
 
-#TODO: modify this input command so that it can also take an input from a given filepath. filepath should be specified in input_from_file
 Take input from a source- either an agent (agent.current_output), from user (get user's input) or from an assigned variable in the agent's memory.
 
 
@@ -54,6 +53,9 @@ Params:
 
 [Input Type: agent]
 - input_from_actor: Optional[str] = "Name of the actor to take input from. If not defined, we go to next input type."
+
+[Input Type: file]
+- input_from_file: Optional[str | Path] = "Path to the file from which to read input."
 
 [Input Type: store]
 - input_from_store: Optional[str] = "Name of the variable in the store from which to read input from."
