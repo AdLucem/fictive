@@ -8,6 +8,7 @@ from .interpreter import Interpreter
 from .data_structures import Store
 from .parse_scenario_config import load_scenario_config
 from .run import run_debug, run_chat, run_single_actor
+from .debugger import DebuggerSession
 
 __all__ = [
     "Actor",
@@ -21,4 +22,5 @@ __all__ = [
     "run_chat",
     "run_debug",
     "run_single_actor",
+    "DebuggerSession"
 ]
