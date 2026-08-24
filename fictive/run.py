@@ -7,6 +7,7 @@ import traceback
 from llm_utils import pipeline_config_from_args, pipeline_from_config
 from .parse_scenario_config import load_scenario_config
 from .actors import ActorConfig, Actor
+from .debugger.debugger import DebuggerSession
 from .interpreter import Interpreter
 from .data_structures import Store
 
@@ -81,140 +82,8 @@ def run_single_actor(interpreter: Interpreter, actor_name: str):
 
 
 def run_debug(interpreter: Interpreter, main_actor_name: str):
-    def _print_help():
-        print(
-            "\n".join([
-                "Debugger commands:",
-                "  n / next            Execute the current interpreter step",
-                "  h / help            Show this help message",
-                "  q / quit            Exit the debugger",
-                "  s / state           Show the full interpreter state",
-                "  store               Show the full store",
-                "  store <key>         Show one store value",
-                "  actors              List actor names and current steps",
-                "  a / actor           Show the main actor state",
-                "  actor <name>        Show another actor state",
-                "  hist [name]         Show unmerged history for an actor",
-                "  latest [name] [n]   Show the nth latest assistant output (default n=0)",
-                "  instr [name]        Show the current instruction for an actor",
-            ])
-        )
-
-    def _actor_or_main(actor_name: str | None) -> Actor:
-        return interpreter.actor_fetch(actor_name or main_actor_name)
-
-    def _print_actor_summary():
-        for name, actor in interpreter.actors.items():
-            current_instr = actor.get_current_instr()
-            print(f"{name}: step={actor.cur_step} current_instr={current_instr}")
-
-    def _print_history(actor_name: str):
-        actor = interpreter.actor_fetch(actor_name)
-        history = actor.history.read()
-        if not history:
-            print(f"{actor_name} history is empty.")
-            return
-        print(json.dumps(history, indent=2))
-
-    def _print_latest(actor_name: str, n: int):
-        latest_output = interpreter.actor_fetch(actor_name).get_latest_output(n)
-        if isinstance(latest_output, dict):
-            print(json.dumps(latest_output, indent=2))
-        else:
-            print(latest_output)
-
-    _print_help()
-
-    main_actor = interpreter.actor_fetch(main_actor_name)
-    working_actor = main_actor
-    while True:
-
-        # Exit: 0 (normal exit)or -1 (abnormal exit)  
-        if isinstance(working_actor, int):
-            if working_actor == 0:
-                print(
-                    f"{main_actor_name} is at its last instruction step "
-                    f"({main_actor.cur_step}). Stopping debug run."
-                )
-                break
-            elif working_actor < 0:
-                print(
-                    f"{main_actor_name} exited abnormally at "
-                    f"({main_actor.cur_step}) with exit code {working_actor}. Stopping debug run."
-                )
-                break
-
-        current_instr = working_actor.get_current_instr()
-        print(
-            f"\n[{working_actor.name} step {working_actor.cur_step}] "
-            f"Next instruction: {current_instr} \n Callstack: {interpreter.callstack}"
-        )
-
-        raw_command = input("debug> ").strip()
-        if raw_command == "":
-            continue
-
-        parts = raw_command.split()
-        command = parts[0].lower()
-
-        try:
-            if command in {"n", "next"}:
-                working_actor = interpreter.exec_current()
-                show_current_instr = True
-                print()
-                continue
-            if command in {"h", "help"}:
-                _print_help()
-                continue
-            if command in {"q", "quit"}:
-                return
-            if command in {"s", "state"}:
-                print(interpreter)
-                continue
-            if command == "store":
-                if len(parts) == 1:
-                    print(interpreter.store)
-                else:
-                    key = " ".join(parts[1:])
-                    print(interpreter.store_fetch(key))
-                continue
-            if command == "actors":
-                _print_actor_summary()
-                continue
-            if command in {"a", "actor"} and len(parts) == 1:
-                print(_actor_or_main(None))
-                continue
-            if command == "actor" and len(parts) >= 2:
-                print(interpreter.actor_fetch(" ".join(parts[1:])))
-                continue
-            if command == "hist":
-                actor_name = parts[1] if len(parts) >= 2 else main_actor_name
-                _print_history(actor_name)
-                continue
-            if command == "latest":
-                actor_name = working_actor.name
-                n = 0
-                if len(parts) >= 2:
-                    try:
-                        n = int(parts[1])
-                    except ValueError:
-                        actor_name = parts[1]
-                if len(parts) >= 3:
-                    n = int(parts[2])
-                _print_latest(actor_name, n)
-                continue
-            if command == "instr":
-                actor = _actor_or_main(parts[1] if len(parts) >= 2 else None)
-                print(actor.get_current_instr())
-                continue
-
-            print(f"Unknown command: {raw_command}")
-            _print_help()
-        except Exception:
-            traceback.print_exc()
-
-    
-        
+    DebuggerSession(interpreter, main_actor_name).run()
+            
 
 def run_chat(interpreter: Interpreter, main_actor_name: str):
     main_actor = interpreter.actor_fetch(main_actor_name)
