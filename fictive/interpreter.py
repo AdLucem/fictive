@@ -51,6 +51,7 @@ class Interpreter:
             "print": self.exec_PRINT,
             "print-latest": self.exec_PRINT_LATEST,
             "cond": self.exec_COND,
+            "exit": self.exec_EXIT,
         }
 
     def exec(self,
@@ -116,6 +117,17 @@ class Interpreter:
 
         acting_actor = self.exec(current_instr, actor_name)
 
+        if current_instr.name == "exit":
+            acting_actor.clear_pending_instructions()
+            acting_actor.return_after_pending = False
+            self.actors[actor_name] = acting_actor
+            self.unwind_actor(actor_name)
+
+            if self.callstack == []:
+                return -1
+
+            return self.actor_fetch(self.callstack[-1])
+
         if current_from_pending:
             # Branch-local commands injected by `cond` are consumed from the
             # pending queue without advancing the actor's base instruction
@@ -130,8 +142,7 @@ class Interpreter:
             # instruction list before entering the pending block.
             if current_actor.return_after_pending and (not current_actor.has_pending_instruction()):
                 current_actor.return_after_pending = False
-                self.callstack.pop()
-                self.fill_variable()
+                self.unwind_actor(actor_name)
         elif was_last_base_instruction:
             # If the actor's final base instruction queued extra work (for
             # example via `cond`), defer callstack unwinding until that pending
@@ -139,8 +150,7 @@ class Interpreter:
             if current_actor.has_pending_instruction():
                 current_actor.return_after_pending = True
             else:
-                self.callstack.pop()
-                self.fill_variable()
+                self.unwind_actor(actor_name)
 
         if self.callstack == []:
             return -1
@@ -187,6 +197,7 @@ class Interpreter:
                   actor_name: str) -> Actor:
         
         acting_actor = self.actor_fetch(actor_name)
+        logging.info(f"LOOP acting actor: {acting_actor.name}")
         if cmd.step:
             acting_actor.cur_step = cmd.step - 1
         else:
@@ -337,14 +348,24 @@ class Interpreter:
             condition = branch.get("condition")
             is_else = condition in (None, "", "else", "ELSE")
             if is_else or self.evaluate_condition(condition):
+                if is_else:
+                    logging.debug("Conditional branch -> ELSE")
+                elif self.evaluate_condition(condition):
+                    logging.debug(f"Conditional branch -> {condition}")
                 selected_commands = branch.get("commands", [])
                 break
 
         if selected_commands:
+            logging.debug(f"Executing commands {selected_commands}")
             acting_actor.queue_instructions(selected_commands)
             self.actors[actor_name] = acting_actor
 
         return acting_actor
+
+    def exec_EXIT(self,
+                  cmd: type[CommandObj],
+                  actor_name: str) -> Actor:
+        return self.actor_fetch(actor_name)
     
     def exec_OTHER(self, 
                    cmd: type[CommandObj],
@@ -352,12 +373,20 @@ class Interpreter:
         print("TO BE DONE")
         return None
 
-    def fill_variable(self):
+    def unwind_actor(self, actor_name: str):
+        if self.callstack and (self.callstack[-1] == actor_name):
+            self.callstack.pop()
+        self.fill_variable(actor_name)
+
+    def fill_variable(self, actor_name: str | None = None):
         """Replace a variable in the waiting store,
         with {var: actor output} in store"""
 
-        for var, actor_name in list(self.waiting_store.items()):
-            actor_output = self.actor_fetch(actor_name).get_latest_output()
+        for var, waiting_actor_name in list(self.waiting_store.items()):
+            if (actor_name is not None) and (waiting_actor_name != actor_name):
+                continue
+
+            actor_output = self.actor_fetch(waiting_actor_name).get_latest_output()
             if isinstance(actor_output, str):
                 self.store.set(var, actor_output)
             elif isinstance(actor_output, dict) and ("content" in actor_output):

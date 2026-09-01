@@ -89,12 +89,19 @@ def run_debug(interpreter: Interpreter, main_actor_name: str):
             
 
 def run_chat(interpreter: Interpreter, main_actor_name: str):
-    main_actor = interpreter.actor_fetch(main_actor_name)
-    working_actor = main_actor
+    # Build the same session object that debug mode uses so chat mode follows
+    # the exact same interpreter/callstack state transitions.
+    session = DebuggerSession(interpreter, main_actor_name)
 
     while True:
-        if main_actor.is_last_instr():
+        # Reuse the debugger's exit detection before every step. This covers
+        # the same terminal states as `run_debug`, including an empty callstack
+        # or any abnormal interpreter exit code stored in `working_actor`.
+        exit_message = session.get_exit_message()
+        if exit_message is not None:
             break
 
-        current_instr = working_actor.get_current_instr()
-        working_actor = interpreter.exec_current()
+        # Advance the interpreter by exactly one step, just like the debugger's
+        # `next` command would do, but automatically and without prompting the
+        # user for an explicit debug command.
+        session.working_actor = session.interpreter.exec_current()

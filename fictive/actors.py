@@ -11,6 +11,9 @@ from llm_utils import LLMPipeline, PipelineConfig, pipeline_from_config
 from .data_structures import History, Scene, Store 
 from .parser.commands import CommandObj, parse_command_dict
 
+# List of commands that automatically return false when queried for `is_last_instr`
+LOOPING_INSTRUCTIONS = ["loop", "cond"]
+
 @dataclass
 class ActorConfig:
     """Configuration for a chat Actor"""
@@ -125,6 +128,9 @@ class Actor:
     def pop_pending_instruction(self):
         if self.pending_instructions:
             self.pending_instructions.pop(0)
+
+    def clear_pending_instructions(self):
+        self.pending_instructions = []
     
     def increment_instr(self, n=1):
         """
@@ -278,7 +284,7 @@ class Actor:
     def is_last_instr(self):
         """Determine if actor is on its last instruction"""
         last_in_seq = self.cur_step >= (len(self.instructions) - 1) 
-        is_not_loop = self.get_current_instr().name not in ["loop"]
+        is_not_loop = self.get_current_instr().name not in LOOPING_INSTRUCTIONS
 
         if last_in_seq and is_not_loop:
             return True

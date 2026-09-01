@@ -24,6 +24,7 @@ class Cmd(StrEnum):
     PRINT = "print"
     PRINT_LATEST = "print-latest"
     COND = "cond"
+    EXIT = "exit"
 
     @staticmethod
     def define_map():
@@ -43,6 +44,7 @@ class Cmd(StrEnum):
             Cmd.PRINT: PRINT,
             Cmd.PRINT_LATEST: PRINT_LATEST,
             Cmd.COND: COND,
+            Cmd.EXIT: EXIT,
         }
         return command_maps
     
@@ -191,6 +193,13 @@ class COND(CommandObj):
             normalized_conditions.append(condition)
 
         self.conditions = normalized_conditions
+
+
+@dataclass
+class EXIT(CommandObj):
+    """Exit the current actor and return control to the previous actor."""
+
+    name = "exit"
 
 
 def parse_command_dict(instr: dict) -> CommandObj:

@@ -209,3 +209,73 @@ class InputFromCommandTests(unittest.TestCase):
             interpreter = Interpreter([actor], main_actor_name="reader")
             self.assertEqual(interpreter.exec_current(), -1)
             self.assertEqual(interpreter.store.get("notes"), "lesson notes")
+
+
+class ExitCommandTests(unittest.TestCase):
+    def test_exit_returns_control_to_previous_actor(self):
+        caller = make_actor(
+            "caller",
+            [
+                {"cmd": "run-actor", "actor_name": "callee", "store": "callee_output"},
+                {"cmd": "assign", "name": "caller_state", "value": "resumed"},
+            ],
+        )
+        callee = make_actor(
+            "callee",
+            [
+                {"cmd": "exit"},
+                {"cmd": "assign", "name": "should_not_run", "value": "no"},
+            ],
+        )
+        callee.history.add({"role": "assistant", "content": "done"})
+
+        interpreter = Interpreter([caller, callee], main_actor_name="caller")
+
+        self.assertEqual(interpreter.exec_current().name, "callee")
+        self.assertEqual(interpreter.exec_current().name, "caller")
+        self.assertEqual(interpreter.exec_current(), -1)
+
+        self.assertEqual(interpreter.store.get("callee_output"), "done")
+        self.assertEqual(interpreter.store.get("caller_state"), "resumed")
+        self.assertIsNone(interpreter.store.get("should_not_run"))
+
+    def test_exit_from_cond_pending_block_discards_remaining_callee_work(self):
+        caller = make_actor(
+            "caller",
+            [
+                {"cmd": "run-actor", "actor_name": "callee"},
+                {"cmd": "assign", "name": "caller_state", "value": "resumed"},
+            ],
+        )
+        callee = make_actor(
+            "callee",
+            [
+                {
+                    "cmd": "cond",
+                    "conditions": [
+                        {
+                            "condition": "True",
+                            "commands": [
+                                {"cmd": "assign", "name": "before_exit", "value": "yes"},
+                                {"cmd": "exit"},
+                                {"cmd": "assign", "name": "after_exit", "value": "no"},
+                            ],
+                        }
+                    ],
+                },
+                {"cmd": "assign", "name": "post_cond", "value": "no"},
+            ],
+        )
+
+        interpreter = Interpreter([caller, callee], main_actor_name="caller")
+
+        self.assertEqual(interpreter.exec_current().name, "callee")
+        self.assertEqual(interpreter.exec_current().name, "callee")
+        self.assertEqual(interpreter.exec_current().name, "callee")
+        self.assertEqual(interpreter.exec_current().name, "caller")
+        self.assertEqual(interpreter.exec_current(), -1)
+
+        self.assertEqual(interpreter.store.get("before_exit"), "yes")
+        self.assertEqual(interpreter.store.get("caller_state"), "resumed")
+        self.assertIsNone(interpreter.store.get("after_exit"))
+        self.assertIsNone(interpreter.store.get("post_cond"))

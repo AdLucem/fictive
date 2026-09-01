@@ -172,3 +172,7 @@ Params:
 
 - write_history : Optional[str] = "If specified, write the entire history of the given actor. Use `actor.history.read()` to get the history."
 ```
+
+### Command: `exit`
+
+Exits the current actor and returns execution to the previous actor in the stack. Takes no commands.
