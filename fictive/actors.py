@@ -42,7 +42,7 @@ class Actor:
     - `cur_step` pointer 
     - a temporary pending-instruction queue used for dynamic control flow such as `cond`
     - conversation history and optional system prompt
-    - an LLM pipeline used by `generate`
+    - an optional LLM pipeline used only by `generate`
 
     The interpreter drives actors step-by-step by asking for the current
     instruction, executing it, and then advancing either the base instruction
@@ -73,7 +73,7 @@ class Actor:
         elif actor_cfg.pipeline_config:
             self.pipeline = self._init_pipeline(actor_cfg.pipeline_config)
         else:
-            raise Exception("Neither pipeline nor pipeline arguments given")
+            self.pipeline = None
         
         # Storage and formatting
         self.store = True if (actor_cfg.storage_dir != None) else False
@@ -215,7 +215,9 @@ class Actor:
         messages = self.history.read()
         
         if self.pipeline is None:
-            raise Exception(f"Pipeline for actor {self.name} not found")
+            raise RuntimeError(
+                f"Cannot execute generate for actor {self.name!r}: no pipeline is configured"
+            )
         
         response = self.pipeline.generate(messages)
         debug_msg += f"Answer from {self.name}: {response['content']}\n"

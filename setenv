@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -a; source "$(dirname "${BASH_SOURCE[0]}")/../.env"; set +a
 export PYTHONPATH=$PYTHONPATH:$PWD
 # export HF_HOME="/scratch/general/vast/u1419632/"
 

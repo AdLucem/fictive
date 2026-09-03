@@ -118,7 +118,15 @@ def load_scenario_config(scenario_dir):
             return value
      
         elif isinstance(value, dict):
-            return {k: resolve_actor_definition_paths(name, v) for k, v in value.items()}
+            is_agent_command = value.get("cmd") == "agent"
+            return {
+                key: (
+                    item
+                    if is_agent_command and key == "workspace"
+                    else resolve_actor_definition_paths(name, item)
+                )
+                for key, item in value.items()
+            }
 
         elif isinstance(value, list):
             return [resolve_actor_definition_paths(name, v) for v in value]
@@ -143,4 +151,3 @@ def load_scenario_config(scenario_dir):
         author_intent = [{"condition": "True", "intent": "Continue"}]
 
     return schema, actor_definitions, author_intent
-
