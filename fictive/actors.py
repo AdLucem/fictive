@@ -212,7 +212,7 @@ class Actor:
                 })
             debug_msg += f"Query to {self.name}: {prompt_display}\n"
 
-        messages = self.history.get_merged()
+        messages = self.history.read()
         
         if self.pipeline is None:
             raise Exception(f"Pipeline for actor {self.name} not found")

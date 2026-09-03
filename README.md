@@ -12,10 +12,18 @@ pip install -e .
 This uses the package metadata in `pyproject.toml`, including the direct
 dependency on `llm-utils`.
 
-You have to allow prerelease versions for `flash-attn-4`:
+For a requirements-file install of the core package dependencies:
 
 ```bash
-$ uv pip install -r requirements.txt --prerelease allow
+$ uv pip install -r requirements.txt
+```
+
+To include optional serving/runtime backends such as `vllm` and `sglang`, install
+the optional requirements file. Some of those packages may require prereleases
+on current Python/CUDA stacks:
+
+```bash
+$ uv pip install -r requirements-optional.txt --prerelease allow
 ```
 
 Make sure your `gcc` compiler is up to date! 

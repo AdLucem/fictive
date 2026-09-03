@@ -107,6 +107,13 @@ class History:
             retval = self.get_merged()
         else:
             retval = self._h
+        # History may contain non-string messages (like dicts or lists), so convert all "content" messages to strings
+        for i, msg in enumerate(retval):
+            if 'content' in msg:
+                content = msg["content"]
+                if not isinstance(content, str):
+                    msg["content"] = str(content)
+                    retval[i] = msg
         return retval
     
     def set_values(self, content: List[dict]):
@@ -233,3 +240,4 @@ class Store:
             s += f"{k} = {v}\n"
         s += "++++++++++\n"
         return s
+

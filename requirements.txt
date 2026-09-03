@@ -1,19 +1,14 @@
-vllm
-torch 
-torchvision 
-accelerate 
-transformers
-sglang 
+# Core requirements
+git+https://github.com/AdLucem/llm-utils.git
 nltk
 numpy
+transformers
+accelerate
+torch
+torchvision
 scipy
 scikit-learn
 sentencepiece 
 openai
 anthropic
 lark
-git+https://github.com/AdLucem/llm-utils.git
-
-
-
-

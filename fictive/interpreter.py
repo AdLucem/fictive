@@ -110,7 +110,8 @@ class Interpreter:
         current_instr = current_actor.get_current_instr()
         was_last_base_instruction = (
             (not current_from_pending)
-            and current_actor.is_last_instr()
+            and current_actor.cur_step >= (len(current_actor.instructions) - 1)
+            and current_instr.name != "loop"
         )
         
         logging.debug(f"{actor_name} executing current instruction: {current_instr}")
@@ -160,7 +161,7 @@ class Interpreter:
     def exec_ASSIGN(self,
                     cmd: type[CommandObj],
                     actor_name: str) -> Actor:
-        self.store.set(cmd.var_name, cmd.value)
+        self.store.set(cmd.var_name, self.evaluate_assignment_value(cmd.value))
         return self.actor_fetch(actor_name)
 
     def exec_WRITE(self,
@@ -347,10 +348,11 @@ class Interpreter:
         for branch in cmd.conditions:
             condition = branch.get("condition")
             is_else = condition in (None, "", "else", "ELSE")
-            if is_else or self.evaluate_condition(condition):
+            condition_matches = False if is_else else self.evaluate_condition(condition)
+            if is_else or condition_matches:
                 if is_else:
                     logging.debug("Conditional branch -> ELSE")
-                elif self.evaluate_condition(condition):
+                else:
                     logging.debug(f"Conditional branch -> {condition}")
                 selected_commands = branch.get("commands", [])
                 break
@@ -481,7 +483,24 @@ class Interpreter:
         else:
             raise Exception(f"Actor name {name} not in theater")
 
+    def expand_expression_placeholders(self, expression: str) -> str:
+        def replace_placeholder(match):
+            key = match.group(1)
+            return repr(self.store_fetch(key))
+
+        return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", replace_placeholder, expression)
+
+    def evaluate_assignment_value(self, value):
+        if not (isinstance(value, str) and value.startswith("python:")):
+            return value
+
+        expression = value[len("python:"):]
+        return self.evaluate_safe_expression(expression, "assign value")
+
     def evaluate_condition(self, condition: str) -> bool:
+        return bool(self.evaluate_safe_expression(condition, "cond condition"))
+
+    def evaluate_safe_expression(self, expression: str, expression_type: str):
         context = {
             **self.store.store,
             "True": True,
@@ -489,7 +508,8 @@ class Interpreter:
             "None": None,
         }
 
-        tree = ast.parse(condition, mode="eval")
+        expression = self.expand_expression_placeholders(expression)
+        tree = ast.parse(expression, mode="eval")
         allowed_nodes = (
             ast.Expression,
             ast.BoolOp,
@@ -498,7 +518,12 @@ class Interpreter:
             ast.Compare,
             ast.Name,
             ast.Load,
+            ast.Subscript,
+            ast.Dict,
+            ast.List,
+            ast.Tuple,
             ast.Constant,
+            ast.Slice,
             ast.And,
             ast.Or,
             ast.Not,
@@ -517,8 +542,8 @@ class Interpreter:
         )
         for node in ast.walk(tree):
             if not isinstance(node, allowed_nodes):
-                raise ValueError(f"Unsupported expression in cond condition: {condition}")
+                raise ValueError(f"Unsupported expression in {expression_type}: {expression}")
             if isinstance(node, ast.Name) and (node.id not in context):
-                raise ValueError(f"Unknown variable '{node.id}' in cond condition: {condition}")
+                raise ValueError(f"Unknown variable '{node.id}' in {expression_type}: {expression}")
 
-        return bool(eval(compile(tree, "<cond>", "eval"), {"__builtins__": {}}, context))
+        return eval(compile(tree, f"<{expression_type}>", "eval"), {"__builtins__": {}}, context)

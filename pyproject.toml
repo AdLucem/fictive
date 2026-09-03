@@ -19,14 +19,16 @@ dependencies = [
     "scikit-learn",
     "scipy",
     "sentencepiece",
-    "sglang",
     "torch",
     "torchvision",
     "transformers",
-    "vllm",
 ]
 
 [project.optional-dependencies]
+backends = [
+    "sglang",
+    "vllm",
+]
 dev = [
     "pytest",
 ]

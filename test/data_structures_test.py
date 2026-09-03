@@ -232,6 +232,7 @@ class HistoryTests(unittest.TestCase):
         )
 
     def test_get_name_and_repr_use_name_mapping(self):
+
         """Tests History.get_name() and History.__repr__() using configured role names."""
         hist = History(
             names={"user": "MyName"},
@@ -242,6 +243,34 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(hist.get_name("assistant"), "assistant")
         self.assertIn("MyName", repr(hist))
         self.assertIn("hello", repr(hist))
+
+    def test_read_returns_strings_only(self):
+
+        """Messages in history may contain non-string values like lists or dicts (for example, for a function-calling model). However, `read` should always return all messages as strings. However, reading the history should NOT change the original format of messages within self._h."""
+
+        hist = History()
+
+        m1 = {"role": "user", "content": "Hello world"}
+        m2 = {
+            "role": "assistant", 
+            "content": {
+                "function": "test",
+                "reason": "test reason"
+            }}
+        m2_str = {
+            "role": "assistant", 
+            "content": str({
+                "function": "test",
+                "reason": "test reason"
+            })}
+
+        hist.add(m1)
+        hist.add(m2)
+
+        self.assertEqual(hist.read(), [m1, m2_str])
+        self.assertEqual(hist._h, [m1, m2])
+
+
 
 
 class SceneTests(unittest.TestCase):
