@@ -57,7 +57,7 @@ def _main_args_parser():
     )
     parser.add_argument(
         "--pipeline-type", 
-        choices=["sglang", "transformers", "minimax", "SGLang", "Transformers", "MiniMax", "mock"],
+        choices=["sglang", "transformers", "vllm", "minimax", "SGLang", "Transformers", "VLLM", "MiniMax", "mock"],
         default="sglang", 
         help="Which backend to use for running the model. If backend is sglang, then SGLang request arguments should be specified and SGLang server should be running."
     )

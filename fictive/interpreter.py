@@ -389,13 +389,11 @@ class Interpreter:
                 continue
 
             actor_output = self.actor_fetch(waiting_actor_name).get_latest_output()
-            if isinstance(actor_output, str):
-                self.store.set(var, actor_output)
-            elif isinstance(actor_output, dict) and ("content" in actor_output):
+            if isinstance(actor_output, dict) and ("content" in actor_output):
                 self.store.set(var, actor_output["content"])
             else:
-                raise Exception(f"Actor output {actor_output} in wrong format- can accept only str or dict.")
-            
+                self.store.set(var, actor_output)
+                
             self.waiting_store.pop(var)
 
     def __repr__(self):
