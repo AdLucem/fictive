@@ -253,7 +253,7 @@ class Actor:
 
         # Read history starting from last message backwards
         for i, msg in enumerate(history[::-1]):
-            if msg['role'] == 'assistant':
+            if msg['role'] in ["system", 'assistant']:
                 prev_count += 1
                 if prev_count == (n + 1):
                     return msg
