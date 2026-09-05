@@ -157,7 +157,7 @@ class Interpreter:
             return -1
 
         return self.actor_fetch(self.callstack[-1])
-             
+
     def exec_ASSIGN(self,
                     cmd: type[CommandObj],
                     actor_name: str) -> Actor:
@@ -241,7 +241,8 @@ class Interpreter:
     def exec_INPUT_FROM(self,
                         cmd: type[CommandObj],
                         actor_name: str) -> Actor:
-        
+
+        print("EXECUTING INPUT FROM")
         acting_actor = self.actor_fetch(actor_name)
         
         # If input_type is human (assume prompt is given as
@@ -254,6 +255,7 @@ class Interpreter:
         elif cmd.input_from_actor:
             logging.debug(f"Input from actor {cmd.input_from_actor}")
             input_msg = self.actor_fetch(cmd.input_from_actor).get_latest_output()
+            input_msg = self.parse_prompt_object(input_msg)
 
         elif cmd.input_from_file:
             file_path = self.resolve_prompt_path(cmd.input_from_file, acting_actor)
@@ -376,6 +378,7 @@ class Interpreter:
         return None
 
     def unwind_actor(self, actor_name: str):
+        print("UNWINDING ACTOR")
         if self.callstack and (self.callstack[-1] == actor_name):
             self.callstack.pop()
         self.fill_variable(actor_name)

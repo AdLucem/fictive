@@ -1,5 +1,5 @@
 # Dockerfile for running on a Runpod pod
-FROM runpod/base:1.0.2-cuda1290-ubuntu2204
+FROM runpod/base:1.0.1-cuda1300-ubuntu2404
 
 # Set environment variables
 # This ensures Python output is immediately visible in logs
@@ -20,10 +20,12 @@ RUN apt-get update --yes && \
 
 # Copy requirements file
 COPY requirements.txt /app/
+COPY requirements-optional.txt /app/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --pre -r requirements.txt 
+    pip install --no-cache-dir --pre -r requirements.txt && \
+    pip install --no-cache-dir --pre -r requirements-optional.txt
 
 # Set Hugging Face cache directory
 ENV HF_HOME=/app/models
