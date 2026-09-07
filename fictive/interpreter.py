@@ -20,7 +20,6 @@ from .parser.commands import Cmd, CommandObj
 from .actors import Actor 
 from .data_structures import Store 
 
-
 @dataclass
 class Interpreter:
     """Register and add functions here"""
@@ -88,13 +87,20 @@ class Interpreter:
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
         }
-
+        
         # Optional hook for streaming display. When set, called as
         # `on_generate_delta(actor_name, event)` for every non-final event a
         # `generate` instruction's pipeline call produces. `None` (the
         # default) means generation proceeds exactly as before, with no
         # streaming overhead.
         self.on_generate_delta: Optional[Callable[[str, dict], None]] = None
+
+    def log_exec_command(self, cmd: type[CommandObj], actor_name: str) -> None:
+        if not logging.getLogger().isEnabledFor(logging.DEBUG):
+            return
+
+        logging.debug(f"Actor {actor_name} executing {cmd}")
+        logging.debug(f"Callstack: {self.callstack}")
 
     def exec(self,
              cmd: type[CommandObj], 
@@ -199,16 +205,18 @@ class Interpreter:
             return -1
 
         return self.actor_fetch(self.callstack[-1])
-             
+
     def exec_ASSIGN(self,
                     cmd: type[CommandObj],
                     actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         self.store.set(cmd.var_name, self.evaluate_assignment_value(cmd.value))
         return self.actor_fetch(actor_name)
 
     def exec_WRITE(self,
                    cmd: type[CommandObj],
                    actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         acting_actor = self.actor_fetch(actor_name)
         write_path = self.resolve_actor_path(cmd.path, acting_actor)
         write_path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,6 +246,7 @@ class Interpreter:
     def exec_LOOP(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actor_fetch(actor_name)
         logging.info(f"LOOP acting actor: {acting_actor.name}")
@@ -251,6 +260,7 @@ class Interpreter:
     def exec_REFRESH(self,
                      cmd: type[CommandObj],
                      actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         acting_actor = self.actor_fetch(actor_name)
         acting_actor.refresh()
@@ -261,6 +271,7 @@ class Interpreter:
                        cmd: type[CommandObj],
                        actor_name: str) -> Actor:
         """Pass control over to the actor specified. NOTE: This instruction modifies the callstack, this function DOES NOT RUN any of the specified actor's instructions"""
+        self.log_exec_command(cmd, actor_name)
         
         actor_run = self.actor_fetch(cmd.actor_name)
         self.callstack.append(actor_run.name)
@@ -283,7 +294,8 @@ class Interpreter:
     def exec_INPUT_FROM(self,
                         cmd: type[CommandObj],
                         actor_name: str) -> Actor:
-        
+        self.log_exec_command(cmd, actor_name)
+
         acting_actor = self.actor_fetch(actor_name)
         
         # If input_type is human (assume prompt is given as
@@ -296,6 +308,7 @@ class Interpreter:
         elif cmd.input_from_actor:
             logging.debug(f"Input from actor {cmd.input_from_actor}")
             input_msg = self.actor_fetch(cmd.input_from_actor).get_latest_output()
+            input_msg = self.parse_prompt_object(input_msg)
 
         elif cmd.input_from_file:
             file_path = self.resolve_prompt_path(cmd.input_from_file, acting_actor)
@@ -335,6 +348,7 @@ class Interpreter:
     def exec_SYSTEM(self, 
                     cmd: type[CommandObj], 
                     actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
         prompt = self.parse_prompt_object(cmd.prompt)
@@ -348,6 +362,7 @@ class Interpreter:
     def exec_GENERATE(self,
                       cmd: type[CommandObj],
                       actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
         on_delta = (
@@ -420,6 +435,7 @@ class Interpreter:
     def exec_PRINT(self,
                    cmd: type[CommandObj],
                    actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         prompt = self.parse_prompt_object(cmd.prompt)
         print(prompt)
@@ -428,6 +444,7 @@ class Interpreter:
     def exec_PRINT_LATEST(self,
                           cmd: type[CommandObj],
                           actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         target_actor_name = actor_name if cmd.actor_name is None else cmd.actor_name
         latest_output = self.actor_fetch(target_actor_name).get_latest_output(cmd.n)
@@ -440,6 +457,7 @@ class Interpreter:
     def exec_COND(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         acting_actor = self.actor_fetch(actor_name)
         selected_commands = []
@@ -466,11 +484,13 @@ class Interpreter:
     def exec_EXIT(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         return self.actor_fetch(actor_name)
     
     def exec_OTHER(self, 
                    cmd: type[CommandObj],
                    actor_name: str):
+        self.log_exec_command(cmd, actor_name)
         print("TO BE DONE")
         return None
 
@@ -488,13 +508,11 @@ class Interpreter:
                 continue
 
             actor_output = self.actor_fetch(waiting_actor_name).get_latest_output()
-            if isinstance(actor_output, str):
-                self.store.set(var, actor_output)
-            elif isinstance(actor_output, dict) and ("content" in actor_output):
+            if isinstance(actor_output, dict) and ("content" in actor_output):
                 self.store.set(var, actor_output["content"])
             else:
-                raise Exception(f"Actor output {actor_output} in wrong format- can accept only str or dict.")
-            
+                self.store.set(var, actor_output)
+                
             self.waiting_store.pop(var)
 
     def __repr__(self):

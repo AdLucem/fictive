@@ -1,5 +1,5 @@
 # Dockerfile for running on a Runpod pod
-FROM runpod/base:1.0.2-cuda1290-ubuntu2204
+FROM runpod/base:1.0.1-cuda1300-ubuntu2404
 
 # Set environment variables
 # This ensures Python output is immediately visible in logs
@@ -17,9 +17,9 @@ RUN apt-get update --yes && \
         tmux \
         tree \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Copy dependency inputs and the standalone package before the application.
-COPY requirements.txt /app/
+COPY requirements.txt /app
 COPY agent-harness /app/agent-harness
 
 # Install Python dependencies
@@ -29,9 +29,6 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
 # Set Hugging Face cache directory
 ENV HF_HOME=/app/models
 ENV HF_HUB_ENABLE_HF_TRANSFER=0
-
-# Copy application files
-COPY . /app
 
 # Verify the pinned agent-harness stack and its local filesystem tool loop at
 # image-build time. This check is offline and never requires API credentials.
