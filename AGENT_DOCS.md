@@ -101,6 +101,18 @@ When an `Actor` is initialized:
 - It permits no pipeline for agent-only actors; only `generate` requires one
   and raises a clear error if it is absent.
 
+`Actor.generate(prompt=None, on_delta=None)` takes an optional streaming
+callback. With `on_delta=None` (the default) it calls `self.pipeline.generate(...)`
+exactly as before. When given, it calls `self._run_pipeline(messages, on_delta)`,
+which drives `self.pipeline.generate_stream(messages)` instead and invokes
+`on_delta(event)` for every non-final event; the final `{"type": "done",
+"message": {...}}` event's message is what gets appended to history, so the
+resulting history entry is identical either way. A subclass that calls the
+pipeline directly instead of going through `generate` (as `RoutingActor` and
+`FileLookupActor` do in `centaurus/src/`) should call `self._run_pipeline(...)`
+too rather than `self.pipeline.generate(...)`, so it participates in
+streaming automatically instead of breaking when a caller passes `on_delta`.
+
 Special actor subclasses live in `fictive/custom_actors.py`:
 
 - `Generator`
@@ -108,7 +120,10 @@ Special actor subclasses live in `fictive/custom_actors.py`:
 
 - `Scorer`
   Runs a normal generation, then extracts a numeric score from the assistant
-  output and stores that score in `self.scores`.
+  output and stores that score in `self.scores`. Its `generate(prompt=None,
+  on_delta=None)` forwards `on_delta` to every `super().generate(...)` call,
+  including regeneration retries when the output doesn't match the expected
+  score pattern.
 
 ### 4. Command Parsing
 
@@ -185,6 +200,14 @@ The interpreter owns:
 - `agent_executor` / `agent_root`
   Optional host-injected agent execution boundary. They must be supplied
   together, and their canonical roots must match exactly.
+
+- `on_generate_delta`
+  Optional `(actor_name, event) -> None` hook, `None` by default. When set,
+  `exec_GENERATE` wraps it to bind the current `actor_name` and passes it as
+  `on_delta` to the acting actor's `generate(...)`, so a host embedding the
+  interpreter can receive streamed tokens as a `generate` instruction runs
+  instead of only once it finishes. No other instruction handler reads this
+  attribute.
 
 ### 7. Step Execution
 
@@ -306,7 +329,8 @@ variables in command params.
 
 Actual model calls are not done in the interpreter itself.
 
-- Actors delegate to `self.pipeline.generate(...)`
+- Actors delegate to `self.pipeline.generate(...)` (or, via `self._run_pipeline(...)`,
+  to `self.pipeline.generate_stream(...)` when a caller wants streamed output)
 - Pipeline implementations live in `llm-utils/llm_utils/pipelines.py`
 - Agent commands delegate to the injected `AgentExecutor`; its implementation
   lives in the independent `agent-harness/` distribution

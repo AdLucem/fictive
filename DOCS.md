@@ -169,12 +169,23 @@ helpers and SGLang integration.
   Defines `ActorConfig` and the base `Actor` class. Actors own instruction
   lists, conversation history, optional storage, and an optional LLM pipeline.
   Agent-only actors may omit the generation pipeline; executing `generate`
-  without one raises a clear runtime error.
+  without one raises a clear runtime error. `Actor.generate(prompt=None,
+  on_delta=None)` accepts an optional `on_delta` callback: when given, the
+  call goes through `self._run_pipeline`, which drives the pipeline's
+  `generate_stream(messages)` (from `llm_utils`) instead of `generate(messages)`,
+  invoking `on_delta` with each non-final event; the resulting history entry
+  is identical either way, and `on_delta=None` (the default) behaves exactly
+  as before. `_run_pipeline` is the shared helper both `generate` and any
+  subclass that calls the pipeline directly (e.g. custom actors defined in
+  `centaurus/src/`) should use, so streaming support does not need
+  reimplementing per subclass.
 
 - `fictive/custom_actors.py`
   Defines actor subclasses with specialized output behavior, including
   `Generator` and `Scorer`, plus the registration map used to build actor types
-  from configuration.
+  from configuration. `Scorer.generate` accepts and forwards `on_delta` to
+  every `super().generate(...)` call it makes, including its regeneration
+  retries, since it calls the pipeline only through the base `Actor.generate`.
 
 - `fictive/data_structures.py`
   Defines the in-memory containers used at runtime:
@@ -191,6 +202,14 @@ helpers and SGLang integration.
   persist latest outputs, prompt-like inputs, or actor histories to files.
   Agent execution uses only a host-injected executor and canonical root; the
   interpreter never constructs a provider or reads provider credentials.
+  `Interpreter.on_generate_delta` is an optional `(actor_name, event) ->
+  None` hook, `None` by default. When set, `exec_GENERATE` passes it through
+  to the acting actor's `generate(on_delta=...)` for streaming display,
+  wrapped to bind the current `actor_name`; every other instruction handler
+  is unaffected. A host embedding the interpreter (such as `centaurus/src/api.py`'s
+  SSE console endpoint) sets this once per exchange to receive token-level
+  events as they occur, rather than only once each `generate` instruction
+  finishes.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
