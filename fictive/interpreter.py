@@ -5,7 +5,7 @@ import json
 import pathlib
 import ast
 from copy import copy, deepcopy
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import logging
 import traceback
 from dataclasses import dataclass
@@ -88,6 +88,13 @@ class Interpreter:
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
         }
+
+        # Optional hook for streaming display. When set, called as
+        # `on_generate_delta(actor_name, event)` for every non-final event a
+        # `generate` instruction's pipeline call produces. `None` (the
+        # default) means generation proceeds exactly as before, with no
+        # streaming overhead.
+        self.on_generate_delta: Optional[Callable[[str, dict], None]] = None
 
     def exec(self,
              cmd: type[CommandObj], 
@@ -343,12 +350,17 @@ class Interpreter:
                       actor_name: str) -> Actor:
         
         acting_actor = self.actors[actor_name]
+        on_delta = (
+            (lambda event: self.on_generate_delta(actor_name, event))
+            if self.on_generate_delta is not None
+            else None
+        )
         # If prompt is given, generate using prompt
         if cmd.prompt is not None:
             prompt = self.parse_prompt_object(cmd.prompt)
-            _ = acting_actor.generate(prompt=prompt)
+            _ = acting_actor.generate(prompt=prompt, on_delta=on_delta)
         else:
-            _ = acting_actor.generate()
+            _ = acting_actor.generate(on_delta=on_delta)
 
         self.actors[actor_name] = acting_actor
         return acting_actor

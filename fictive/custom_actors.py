@@ -36,7 +36,7 @@ class Scorer(Actor):
 
         self.scores = []
 
-    def generate(self, prompt = None):
+    def generate(self, prompt=None, on_delta=None):
         def extract_score(text):
             matches = re.findall(self.pattern, text)
             if matches:
@@ -54,7 +54,7 @@ class Scorer(Actor):
 
             return None
 
-        super().generate(prompt)
+        super().generate(prompt, on_delta=on_delta)
         result = super().get_latest_output()
         content = result["content"]
 
@@ -66,7 +66,7 @@ class Scorer(Actor):
             else:
                 logging.debug(f"Current output for {self.name} not matching pattern. Regenerating...")
                 self.history.remove(role="assistant")
-                super().generate(prompt)
+                super().generate(prompt, on_delta=on_delta)
                 result = super().get_latest_output()
                 content = result["content"]
                 score_num = extract_score(content)
