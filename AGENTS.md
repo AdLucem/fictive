@@ -26,19 +26,15 @@ This applies to:
 - adding or removing important dependencies
 - changing scenario configuration expectations
 
-If a code or configuration change does not affect repository structure,
-behavior, or usage, `DOCS.md` does not need to be edited just for the sake of
-touching it.
+If a code or configuration change does not affect repository structure, behavior, or usage, `DOCS.md` does not need to be edited just for the sake of touching it.
 
 ## Agent Context Hook
 
-For future coding sessions in this repository, when the goal is to understand
-what a particular class, module, or file is doing, read `AGENT_DOCS.md` first.
+For future coding sessions in this repository, when the goal is to understand what a particular class, module, or file is doing, read `AGENT_DOCS.md` first.
 Use it as the default condensed architecture reference to reduce token usage.
 
 Only open the underlying implementation file after consulting
-`AGENT_DOCS.md`, and only when `AGENT_DOCS.md` does not provide a clear enough
-picture for the task.
+`AGENT_DOCS.md`, and only when `AGENT_DOCS.md` does not provide a clear enough picture for the task.
 
 ## Do Not Automatically Generate A Test File
 

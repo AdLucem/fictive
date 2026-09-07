@@ -5,7 +5,7 @@ from copy import deepcopy
 import json 
 import transformers
 import traceback
-from typing import Literal 
+from typing import Literal, Callable
 
 from llm_utils import pipeline_config_from_args, pipeline_from_config
 from .parser.commands import Cmd, CommandObj
@@ -47,18 +47,29 @@ class Runtime:
 
         self.exit_requested = False
 
-    def cmd_exec(self, cmd_name: str, **kwargs):
+    def cmd_exec(self, command: str, **kwargs):
 
-        cmd = Cmd(cmd_name).map_to_dataclass()(**kwargs)
+        cmd = Cmd(command).map_to_dataclass()(**kwargs)
+
+        if self.mode == "debug":
+            exit_message = self.get_exit_message()
+            if exit_message is not None:
+                print(exit_message)
+
+            print(self.format_step(cmd))
+            raw_command = input("debug> ")
+            outputs = self.handle_command(raw_command)
+
+            for output in outputs:
+                print(output)
 
         self.working_actor = self.interpreter.exec(
-            cmd=cmd, 
-            actor_name=self.acting_actor_name
+                cmd=cmd,
+                actor_name=self.working_actor.name
         )
-        if self.mode == "debug":
-            pass
-        self.acting_actor_name = self.working_actor.name
-        return self.interpreter, self.acting_actor_name
+            
+        acting_actor_name = self.working_actor.name
+        return self.interpreter, acting_actor_name
 
     def handle_command(self, raw_command: str) -> list[str]:
         raw_command = raw_command.strip()
@@ -111,7 +122,29 @@ class Runtime:
         except Exception:
             return [traceback.format_exc().rstrip()]
 
-    
+    def run_debug(self,
+                  
+                  input_fn: Callable[[str], str] = input,
+                  output_fn: Callable[[str], None] = print,
+    ) -> None:
+        output_fn(self.HELP_TEXT)
+
+        while True:
+            exit_message = self.get_exit_message()
+            if exit_message is not None:
+                output_fn(exit_message)
+                break
+
+            output_fn(self.format_current_step())
+            raw_command = input_fn("debug> ")
+            outputs = self.handle_command(raw_command)
+
+            for output in outputs:
+                output_fn(output)
+
+            if self.exit_requested:
+                break
+
     def actor_or_main(self, actor_name: str | None) -> Actor:
         return self.interpreter.actor_fetch(actor_name or self.main_actor_name)
 
@@ -134,11 +167,9 @@ class Runtime:
 
         return None
 
-    def format_current_step(self) -> str:
-        current_instr = self.working_actor.get_current_instr()
+    def format_step(self, cmd: type[CommandObj]) -> str:
         return (
-            f"\n[{self.working_actor.name} step {self.working_actor.cur_step}] "
-            f"Next instruction: {current_instr} \n Callstack: {self.interpreter.callstack}"
+            f"\n[{self.working_actor.name} next instruction {cmd} \n Callstack: {self.interpreter.callstack}"
         )
 
     def format_actor_summary(self) -> str:
