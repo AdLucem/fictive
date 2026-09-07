@@ -14,7 +14,6 @@ from .parser.commands import Cmd, CommandObj
 from .actors import Actor 
 from .data_structures import Store 
 
-
 @dataclass
 class Interpreter:
     """Register and add functions here"""
@@ -53,6 +52,13 @@ class Interpreter:
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
         }
+
+    def log_exec_command(self, cmd: type[CommandObj], actor_name: str) -> None:
+        if not logging.getLogger().isEnabledFor(logging.DEBUG):
+            return
+
+        logging.debug(f"Actor {actor_name} executing {cmd}")
+        logging.debug(f"Callstack: {self.callstack}")
 
     def exec(self,
              cmd: type[CommandObj], 
@@ -161,12 +167,14 @@ class Interpreter:
     def exec_ASSIGN(self,
                     cmd: type[CommandObj],
                     actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         self.store.set(cmd.var_name, self.evaluate_assignment_value(cmd.value))
         return self.actor_fetch(actor_name)
 
     def exec_WRITE(self,
                    cmd: type[CommandObj],
                    actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         acting_actor = self.actor_fetch(actor_name)
         write_path = self.resolve_actor_path(cmd.path, acting_actor)
         write_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,6 +204,7 @@ class Interpreter:
     def exec_LOOP(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actor_fetch(actor_name)
         logging.info(f"LOOP acting actor: {acting_actor.name}")
@@ -209,6 +218,7 @@ class Interpreter:
     def exec_REFRESH(self,
                      cmd: type[CommandObj],
                      actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         acting_actor = self.actor_fetch(actor_name)
         acting_actor.refresh()
@@ -219,6 +229,7 @@ class Interpreter:
                        cmd: type[CommandObj],
                        actor_name: str) -> Actor:
         """Pass control over to the actor specified. NOTE: This instruction modifies the callstack, this function DOES NOT RUN any of the specified actor's instructions"""
+        self.log_exec_command(cmd, actor_name)
         
         actor_run = self.actor_fetch(cmd.actor_name)
         self.callstack.append(actor_run.name)
@@ -241,8 +252,8 @@ class Interpreter:
     def exec_INPUT_FROM(self,
                         cmd: type[CommandObj],
                         actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
-        print("EXECUTING INPUT FROM")
         acting_actor = self.actor_fetch(actor_name)
         
         # If input_type is human (assume prompt is given as
@@ -295,6 +306,7 @@ class Interpreter:
     def exec_SYSTEM(self, 
                     cmd: type[CommandObj], 
                     actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
         prompt = self.parse_prompt_object(cmd.prompt)
@@ -308,6 +320,7 @@ class Interpreter:
     def exec_GENERATE(self,
                       cmd: type[CommandObj],
                       actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
         # If prompt is given, generate using prompt
@@ -323,6 +336,7 @@ class Interpreter:
     def exec_PRINT(self,
                    cmd: type[CommandObj],
                    actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         prompt = self.parse_prompt_object(cmd.prompt)
         print(prompt)
@@ -331,6 +345,7 @@ class Interpreter:
     def exec_PRINT_LATEST(self,
                           cmd: type[CommandObj],
                           actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         target_actor_name = actor_name if cmd.actor_name is None else cmd.actor_name
         latest_output = self.actor_fetch(target_actor_name).get_latest_output(cmd.n)
@@ -343,6 +358,7 @@ class Interpreter:
     def exec_COND(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
 
         acting_actor = self.actor_fetch(actor_name)
         selected_commands = []
@@ -369,16 +385,17 @@ class Interpreter:
     def exec_EXIT(self,
                   cmd: type[CommandObj],
                   actor_name: str) -> Actor:
+        self.log_exec_command(cmd, actor_name)
         return self.actor_fetch(actor_name)
     
     def exec_OTHER(self, 
                    cmd: type[CommandObj],
                    actor_name: str):
+        self.log_exec_command(cmd, actor_name)
         print("TO BE DONE")
         return None
 
     def unwind_actor(self, actor_name: str):
-        print("UNWINDING ACTOR")
         if self.callstack and (self.callstack[-1] == actor_name):
             self.callstack.pop()
         self.fill_variable(actor_name)
