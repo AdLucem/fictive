@@ -5,11 +5,17 @@ import json
 import pathlib
 import ast
 from copy import copy, deepcopy
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import logging
 import traceback
 from dataclasses import dataclass
 
+from .agent_api import AgentExecutor, AgentRunFailed
+from .agent_integration import (
+    agent_result_trace,
+    build_agent_request,
+    resolve_agent_workspace,
+)
 from .parser.commands import Cmd, CommandObj
 from .actors import Actor 
 from .data_structures import Store 
@@ -21,7 +27,9 @@ class Interpreter:
     def __init__(self, 
                  actors: List[Actor], 
                  main_actor_name=None,
-                 store: Store=None):
+                 store: Store=None,
+                 agent_executor: AgentExecutor | None = None,
+                 agent_root: str | pathlib.Path | None = None):
 
         self.actors = dict([(actor.name, actor) for actor in actors])
 
@@ -29,6 +37,32 @@ class Interpreter:
         self.store = store 
         if store is None:
             self.store = Store()
+
+        self.agent_executor = agent_executor
+        self.agent_root = None
+        if (agent_executor is None) != (agent_root is None):
+            raise ValueError(
+                "agent_executor and agent_root must either both be configured or both be omitted"
+            )
+        if agent_root is not None:
+            try:
+                resolved_agent_root = pathlib.Path(agent_root).resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise ValueError("agent_root does not exist or cannot be resolved") from exc
+            if not resolved_agent_root.is_dir():
+                raise ValueError("agent_root must be an existing directory")
+
+            try:
+                executor_root = pathlib.Path(agent_executor.workspace_root).resolve(strict=True)
+            except (AttributeError, OSError, RuntimeError, TypeError) as exc:
+                raise ValueError(
+                    "agent_executor must expose an existing workspace_root directory"
+                ) from exc
+            if executor_root != resolved_agent_root:
+                raise ValueError(
+                    "agent_root must match agent_executor.workspace_root exactly"
+                )
+            self.agent_root = resolved_agent_root
 
         # Waiting on... i.e: variables that store the 
         # return value (last output) from an actor
@@ -41,6 +75,7 @@ class Interpreter:
         self.exec_map = {
             "system": self.exec_SYSTEM,
             "generate": self.exec_GENERATE,
+            "agent": self.exec_AGENT,
             "input-from": self.exec_INPUT_FROM,
             "run-actor": self.exec_RUN_ACTOR,
             "refresh": self.exec_REFRESH,
@@ -52,6 +87,13 @@ class Interpreter:
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
         }
+        
+        # Optional hook for streaming display. When set, called as
+        # `on_generate_delta(actor_name, event)` for every non-final event a
+        # `generate` instruction's pipeline call produces. `None` (the
+        # default) means generation proceeds exactly as before, with no
+        # streaming overhead.
+        self.on_generate_delta: Optional[Callable[[str, dict], None]] = None
 
     def log_exec_command(self, cmd: type[CommandObj], actor_name: str) -> None:
         if not logging.getLogger().isEnabledFor(logging.DEBUG):
@@ -323,12 +365,69 @@ class Interpreter:
         self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
+        on_delta = (
+            (lambda event: self.on_generate_delta(actor_name, event))
+            if self.on_generate_delta is not None
+            else None
+        )
         # If prompt is given, generate using prompt
         if cmd.prompt is not None:
             prompt = self.parse_prompt_object(cmd.prompt)
-            _ = acting_actor.generate(prompt=prompt)
+            _ = acting_actor.generate(prompt=prompt, on_delta=on_delta)
         else:
-            _ = acting_actor.generate()
+            _ = acting_actor.generate(on_delta=on_delta)
+
+        self.actors[actor_name] = acting_actor
+        return acting_actor
+
+    def exec_AGENT(self,
+                   cmd: type[CommandObj],
+                   actor_name: str) -> Actor:
+        """Run the injected agent executor with a snapshot of actor history."""
+
+        if self.agent_executor is None or self.agent_root is None:
+            raise RuntimeError(
+                "Cannot execute agent command: configure both agent_executor and agent_root"
+            )
+
+        acting_actor = self.actor_fetch(actor_name)
+        task = None
+        if cmd.prompt is not None:
+            prompt_obj = self.resolve_prompt_path(cmd.prompt, acting_actor)
+            task = self.parse_prompt_object(prompt_obj)
+
+        workspace = resolve_agent_workspace(self.agent_root, cmd.workspace)
+        request = build_agent_request(
+            history=acting_actor.history.read(merged=False),
+            task=task,
+            workspace=workspace,
+            profile=cmd.profile,
+            tools=cmd.tools,
+            request_limit=cmd.request_limit,
+            tool_call_limit=cmd.tool_call_limit,
+        )
+        result = self.agent_executor.run(request)
+        trace = agent_result_trace(result)
+
+        if cmd.trace_store:
+            self.store.set(cmd.trace_store, trace)
+
+        logging.info(
+            "Agent run completed: run_id=%s status=%s usage=%s changed_paths=%s",
+            result.run_id,
+            result.status,
+            result.usage,
+            list(result.changed_paths),
+        )
+
+        if result.status != "completed":
+            raise AgentRunFailed(result)
+        if not isinstance(result.output, str):
+            raise TypeError("Agent executor output must be a string")
+
+        acting_actor.history.add({"role": "assistant", "content": result.output})
+        if cmd.store:
+            self.store.set(cmd.store, result.output)
 
         self.actors[actor_name] = acting_actor
         return acting_actor

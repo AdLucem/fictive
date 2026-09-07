@@ -1,0 +1,20 @@
+[
+  {
+    "cmd": "system",
+    "prompt": "filesystem_worker_system.txt"
+  },
+  {
+    "cmd": "agent",
+    "profile": "filesystem-demo",
+    "prompt": "Read notes.txt and write a concise summary to summary.txt.",
+    "workspace": ".",
+    "tools": [
+      "read_file",
+      "write_file"
+    ],
+    "request-limit": 3,
+    "tool-call-limit": 2,
+    "store": "filesystem-answer",
+    "trace-store": "filesystem-trace"
+  }
+]

@@ -13,6 +13,8 @@ for _name in __all__:
     globals()[_name] = getattr(_inner_package, _name)
 
 for _submodule_name in (
+    "agent_api",
+    "agent_integration",
     "actors",
     "custom_actors",
     "data_structures",
@@ -29,4 +31,3 @@ for _submodule_name in (
     _attr_name = _submodule_name.rsplit(".", 1)[-1]
     if "." not in _submodule_name:
         globals()[_attr_name] = _module
-

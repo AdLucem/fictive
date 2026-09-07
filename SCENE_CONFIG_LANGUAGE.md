@@ -9,11 +9,11 @@ Atomic -> var:<varname>
         | file:<filepath>
 
 
-MathOp -> + | 
+MathOp -> + |
 Expr -> Atomic
       | Expr MathOp Expr
       | Expr BoolOp Expr
-      | (Expr) 
+      | (Expr)
 ```
 
 ## Commands
@@ -36,51 +36,102 @@ Params:
     - prompt: Optional[str | Path] = "If specified, append this prompt to existing history before sending to generator. If not specified, only the history is sent to generator."
 ```
 
+### Command: `agent`
+
+Run one bounded agent harness invocation using the actor's complete conversation history. The provider, credentials, maximum filesystem permissions, and maximum workspace root are registered by trusted host code; they cannot be configured or widened by a scenario.
+
+```
+Parameters:
+
+- `profile`: required string naming a host-registered model and permission profile.
+- `prompt`: optional immediate task. It accepts the same literal string, prompt file, message object, and `var:<store-name>` forms as other prompt fields.
+- `workspace`: optional existing relative directory beneath the host's configured root. It defaults to `.`. Absolute paths, traversal outside the root, and escaping symlinks are rejected.
+- `tools`: optional list that narrows the tools permitted by the selected profile. It cannot enable a tool the host profile did not grant. The current filesystem tools are `read_file`, `list_directory`, `search_files`, `find_files`, `file_info`, `write_file`, `edit_file`, and `create_directory`. Shell access is not supported.
+- `request-limit`: optional positive integer limiting model requests. The default is `20`.
+- `tool-call-limit`: optional positive integer limiting successful tool calls. The default is `50`.
+- `store`: optional shared-store key for the final assistant text.
+- `trace-store`: optional shared-store key for the normalized run record,
+  including status, messages, tool events, usage, changed relative paths, and
+  run ID.
+
+Example:
+
+```json
+{
+  "cmd": "agent",
+  "profile": "workspace-editor",
+  "prompt": "Read notes.txt and update summary.txt.",
+  "workspace": ".chatlogs",
+  "tools": [
+    "read_file",
+    "write_file"
+  ],
+  "request-limit": 10,
+  "tool-call-limit": 20,
+  "store": "agent-answer",
+  "trace-store": "agent-trace"
+}
+```
+
+The actor's history is always supplied as a snapshot and does not need a
+command flag. On success, only the final text is appended to actor history, as
+one assistant message; structured tool activity remains in the optional trace.
+On a failed result, the interpreter stores the requested failure trace, raises
+`AgentRunFailed`, and does not advance the instruction or unwind the actor.
+
+The host must construct `Interpreter` with both `agent_executor` and
+`agent_root`. Their canonical roots must match exactly. Agent-only actors may
+omit an ordinary generation pipeline, but executing `generate` on such an
+actor is an error.
+
+See `examples/agent_filesystem_demo/` for an offline runnable configuration.
+
 ### Command: `input-from`
 
-Take input from a source- either an agent (agent.current_output), from user (get user's input) or from an assigned variable in the agent's memory.
+Take input from a source: an actor's latest output, a human user, a file, or a
+value in the shared interpreter store.
 
 
 ```
 Params:
 
 - enclosing_prompt: Optional[str | Path] = "If specified: prompt/prompt variable in store/prompt file to enclose the input within. i.e: the input will either be appended after the prompt, or if `{INPUT_FROM}` placeholder is in the prompt, will be put in place of placeholder.
-- store: Optional[str] = "Name of variable inside the agent memory in which to store input. If not specified, input will be appended to agent history."
-- history: Optional[Bool] = "Input is appended to agent history by default. If `store` argument is given, use this argument to both store the input and also append it to history." 
+- store: Optional[str] = "Name of variable inside the shared store in which to store input. If not specified, input will be appended to actor history."
+- history: Optional[Bool] = "Input is appended to actor history by default. If `store` argument is given, use this argument to both store the input and also append it to history."
 
 [Input Type: human]
 - human-prompt: Optional[str | Path] = "If specified: prompt/prompt variable in store/prompt file to prompt human user with. Note that this takes precedence over `input_from_agent`.
 
 [Input Type: agent]
-- input_from_actor: Optional[str] = "Name of the actor to take input from. If not defined, we go to next input type."
+- input-from-actor: Optional[str] = "Name of the actor to take input from. If not defined, we go to next input type."
 
 [Input Type: file]
-- input_from_file: Optional[str | Path] = "Path to the file from which to read input."
+- input-from-file: Optional[str | Path] = "Path to the file from which to read input."
 
 [Input Type: store]
-- input_from_store: Optional[str] = "Name of the variable in the store from which to read input from."
+- input-from-store: Optional[str] = "Name of the variable in the store from which to read input from."
 ```
 
-### Command: `run-agent`
+### Command: `run-actor`
 
-Run a single cycle of the given agent (NO LOOPING), and get the output at the end of the cycle.
+Run a single cycle of the given actor (NO LOOPING), and get the output at the end of the cycle.
 
 ```
 Params:
-- `agent-name` : str = "Name of agent for which to run cycle. This raises an exception if the named agent does not exist."
-- `start_step` : Optional[int] = 0 ::= "Step number on which to begin agent cycle. By default, begins at the first step i.e: 0."
+- `actor-name` : str = "Name of actor for which to run cycle. This raises an exception if the named actor does not exist."
+- `start-step` : Optional[int] = 0 ::= "Step number on which to begin actor cycle. By default, begins at the first step i.e: 0."
 
 
-- store: Optional[str] = "Name of variable inside the agent memory in which to store given agent's output (i.e: last message in agent history). If not specified, output will simply remain in the called agent's history."
+- store: Optional[str] = "Name of variable inside the shared store in which to store the given actor's output (i.e: last assistant message in actor history). If not specified, output will simply remain in the called actor's history."
 ```
 
 ### Command: `refresh`
 
-Refresh the agent's history i.e: delete everything except (if applicable) system prompt. 
+Refresh the actor's history i.e: delete everything except (if applicable) system prompt.
 
 ### Command: `loop`
 
-Loop around to the beginning of the agent's instructions (or, optionally, loop to given step.)
+Loop around to the beginning of the actor's instructions (or, optionally, loop to given step.)
 
 ```
 Params:
@@ -90,7 +141,7 @@ Params:
 
 ### Command: `assign`
 
-Assign a variable <var_name> some value <value>. 
+Assign a variable <var_name> some value <value>.
 
 ### Command: `print`
 
@@ -104,12 +155,12 @@ Params:
 
 ### Command: `print-latest`
 
-Print the last message in the agent's history. If `n` is specified, then print the n'th previous message.
+Print the latest assistant message in an actor's history. If `n` is specified, then print the n'th previous assistant message.
 
 ```
 Params:
 
-- agent-name: Optional[str] = "Name of agent whose history to print. If not specified, print for calling agent."
+- actor-name: Optional[str] = "Name of actor whose history to print. If not specified, print for calling actor."
 - n: Optional[int] = "If specified, print n'th previous message"
 ```
 

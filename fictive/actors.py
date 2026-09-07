@@ -2,7 +2,7 @@ import os
 import json
 import pathlib
 import argparse
-from typing import List, Optional
+from typing import Callable, List, Optional
 from dataclasses import dataclass
 import logging
 from copy import deepcopy
@@ -42,7 +42,7 @@ class Actor:
     - `cur_step` pointer 
     - a temporary pending-instruction queue used for dynamic control flow such as `cond`
     - conversation history and optional system prompt
-    - an LLM pipeline used by `generate`
+    - an optional LLM pipeline used only by `generate`
 
     The interpreter drives actors step-by-step by asking for the current
     instruction, executing it, and then advancing either the base instruction
@@ -73,7 +73,7 @@ class Actor:
         elif actor_cfg.pipeline_config:
             self.pipeline = self._init_pipeline(actor_cfg.pipeline_config)
         else:
-            raise Exception("Neither pipeline nor pipeline arguments given")
+            self.pipeline = None
         
         # Storage and formatting
         self.store = True if (actor_cfg.storage_dir != None) else False
@@ -185,9 +185,53 @@ class Actor:
         logging.debug(f"Parsed {instr} -> {cmd_obj}")
         return cmd_obj
     
-    def generate(self, prompt: Optional[dict | str]=None):
+    def _run_pipeline(
+        self,
+        messages: list,
+        on_delta: Optional[Callable[[dict], None]] = None,
+    ) -> dict:
+        """Call `self.pipeline` for one turn and return the resulting message dict.
+
+        Subclasses that call the pipeline directly instead of going through
+        `generate` (e.g. `RoutingActor`, `FileLookupActor`) should use this
+        rather than `self.pipeline.generate(...)`, so they pick up streaming
+        support automatically. If `on_delta` is given, iterates
+        `self.pipeline.generate_stream(messages)` and calls `on_delta` with
+        every non-final event; otherwise calls `self.pipeline.generate(messages)`
+        directly. Either way, the returned dict is the same shape.
+        """
+        if self.pipeline is None:
+            raise RuntimeError(
+                f"Cannot execute generate for actor {self.name!r}: no pipeline is configured"
+            )
+
+        if on_delta is None:
+            return self.pipeline.generate(messages)
+
+        response = None
+        for event in self.pipeline.generate_stream(messages):
+            if event["type"] == "done":
+                response = event["message"]
+            else:
+                on_delta(event)
+        if response is None:
+            raise RuntimeError(
+                f"Pipeline for actor {self.name!r} ended its stream without a final message."
+            )
+        return response
+
+    def generate(
+        self,
+        prompt: Optional[dict | str] = None,
+        on_delta: Optional[Callable[[dict], None]] = None,
+    ):
         """Generate next message based on current history. Optionally,
-        append prompt (or if file, load prompt from file and then append) to history before generating."""
+        append prompt (or if file, load prompt from file and then append) to history before generating.
+
+        If `on_delta` is given, generation goes through the pipeline's
+        `generate_stream` instead of `generate`, and `on_delta` is called
+        with each non-final event (`{"type": "delta"|"thinking_delta", ...}`)
+        as it arrives. The final history entry is identical either way."""
 
         debug_msg = ("-" * 60) + "\n"
 
@@ -213,11 +257,7 @@ class Actor:
             debug_msg += f"Query to {self.name}: {prompt_display}\n"
 
         messages = self.history.read()
-        
-        if self.pipeline is None:
-            raise Exception(f"Pipeline for actor {self.name} not found")
-        
-        response = self.pipeline.generate(messages)
+        response = self._run_pipeline(messages, on_delta)
         debug_msg += f"Answer from {self.name}: {response['content']}\n"
         debug_msg += ("-" * 60) + "\n"
         logging.debug(debug_msg)
@@ -251,7 +291,7 @@ class Actor:
 
         # Read history starting from last message backwards
         for i, msg in enumerate(history[::-1]):
-            if msg['role'] == 'assistant':
+            if msg['role'] in ["system", 'assistant']:
                 prev_count += 1
                 if prev_count == (n + 1):
                     return msg

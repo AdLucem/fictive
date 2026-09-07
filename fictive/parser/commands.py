@@ -16,6 +16,7 @@ class Cmd(StrEnum):
     SYSTEM = "system"
     INPUT_FROM = "input-from"
     GENERATE = "generate"
+    AGENT = "agent"
     RUN_ACTOR = "run-actor"
     REFRESH = "refresh"
     LOOP = "loop"
@@ -36,6 +37,7 @@ class Cmd(StrEnum):
             Cmd.SYSTEM: SYSTEM,
             Cmd.INPUT_FROM: INPUT_FROM,
             Cmd.GENERATE: GENERATE,
+            Cmd.AGENT: AGENT,
             Cmd.RUN_ACTOR: RUN_ACTOR,
             Cmd.REFRESH: REFRESH,
             Cmd.LOOP: LOOP,
@@ -104,6 +106,21 @@ class GENERATE(CommandObj):
     
     name = "generate"
     prompt: Optional[str | pathlib.Path] = None
+
+
+@dataclass
+class AGENT(CommandObj):
+    """Run a bounded agent using actor history and an optional immediate task."""
+
+    profile: str
+    name = "agent"
+    prompt: Optional[str | pathlib.Path | dict] = None
+    workspace: str | pathlib.Path = "."
+    tools: Optional[List[str]] = None
+    request_limit: int = 20
+    tool_call_limit: int = 50
+    store: Optional[str] = None
+    trace_store: Optional[str] = None
 
 @dataclass
 class RUN_ACTOR(CommandObj):
