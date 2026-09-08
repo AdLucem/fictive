@@ -587,11 +587,12 @@ class Interpreter:
 
     def store_fetch(self, key):
 
-        value = self.store.get(key)
-        if value is not None:
-            return value
-        else:
-            raise Exception(f"Variable name {key} not in memory store")
+        # Presence, not truthiness: a variable assigned None (for instance a
+        # router argument that was absent) is set, and must read back as None
+        # rather than raising as if it had never been assigned.
+        if self.store.has(key):
+            return self.store.get(key)
+        raise Exception(f"Variable name {key} not in memory store")
     
     def actor_fetch(self, name):
         
