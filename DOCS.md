@@ -193,6 +193,23 @@ helpers and SGLang integration.
   - `Scene` for rendered scene views
   - `Store` for interpreter variables
 
+  `History.read()` returns copies of its messages, stringifying any non-string
+  `content` in the copy only. It must not stringify in place: an actor may store
+  a structured message (the Centaurus routing actor stores a dict), and callers
+  that only serialize history -- HTTP handlers, debug views -- would otherwise
+  corrupt the stored value for the next turn. `get_merged()` likewise copies
+  before merging, since the merge step concatenates into the message it appends.
+
+  `Store.has(name)` reports whether a variable was assigned, which `get()` cannot
+  express because an unassigned variable and one assigned `None` both read back
+  as `None`. `Interpreter.store_fetch()` uses `has()` so a variable deliberately
+  set to `None` returns `None` rather than raising as if it were never assigned.
+
+- `fictive/run.py` and `fictive/library_runtime.py`
+  Import `transformers` lazily inside a `try`/`except ImportError`. It is only
+  used to quiet that library's logger, so it must not be a hard dependency of
+  importing `fictive`.
+
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
