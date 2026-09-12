@@ -193,6 +193,22 @@ helpers and SGLang integration.
   - `Scene` for rendered scene views
   - `Store` for interpreter variables
 
+  Three behaviours callers depend on:
+  - `History.read` returns fresh dicts. Reading never edits stored messages,
+    so a structured `content` -- a dict, from a function-calling model or a
+    parsed route -- stays structured for every later reader, while the caller
+    that asked still gets it rendered as text. Before this, one read flattened
+    it permanently, which meant merely inspecting a session (a history
+    endpoint, a debugger view) changed the conversation it was inspecting.
+  - `History.get_merged` copies every message it appends, including the first.
+    Appending the stored dict and then merging into it edited the caller's
+    history in place whenever the second message shared the first one's role.
+    Merged content is joined with an f-string rather than `+=`, so a
+    non-string content concatenates instead of raising `TypeError`.
+  - `Store.has(var_name)` reports whether a variable was ever assigned. `get`
+    cannot answer that: an unassigned variable and one deliberately assigned
+    `None` both read back as `None`.
+
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
@@ -210,6 +226,11 @@ helpers and SGLang integration.
   SSE console endpoint) sets this once per exchange to receive token-level
   events as they occur, rather than only once each `generate` instruction
   finishes.
+  `Interpreter.store_fetch` resolves a variable by presence rather than by
+  truthiness, through `Store.has`, so a variable deliberately assigned `None`
+  -- an optional argument a router left out, say -- returns `None` instead of
+  raising "not in memory store", which is a different and misleading
+  complaint.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -224,6 +245,12 @@ helpers and SGLang integration.
   - `run_chat` for interactive execution flow
   - `run_single_actor` for single-actor testing that replaces inter-actor
     dependencies with user prompts where needed
+
+  This module and `fictive/library_runtime.py` both import `transformers`
+  inside a `try/except ImportError`, because they use it for nothing but
+  quietening its own logger. `transformers` stays in `requirements.txt` --
+  `TransformersPipeline` needs it for local inference -- but an API-only
+  install can now import either entry module without it.
 
 ### Package: `fictive/parser/`
 

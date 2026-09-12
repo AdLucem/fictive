@@ -3,7 +3,10 @@
 import argparse
 from copy import deepcopy
 import json 
-import transformers
+try:
+    import transformers
+except ImportError:  # optional: only used to quiet its own logger
+    transformers = None
 import traceback
 from typing import Literal, Callable
 
@@ -15,7 +18,8 @@ from .debugger import DebuggerSession
 from .interpreter import Interpreter
 from .data_structures import Store
 
-transformers.logging.set_verbosity_error()
+if transformers is not None:
+    transformers.logging.set_verbosity_error()
 
 
 HELP_TEXT = "\n".join(
