@@ -39,6 +39,8 @@ HELP_TEXT = "\n".join(
 class Runtime:
 
     def __init__(self, interpreter: Interpreter, start_actor_name: str, mode: Literal["debug", "chat", "single-actor"] = "chat"):
+
+        self.HELP_TEXT = HELP_TEXT
         
         self.interpreter = interpreter
         self.start_actor_name = start_actor_name
