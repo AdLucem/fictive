@@ -22,20 +22,17 @@ class History:
             # print(f"MERGE STEP {i}: {self._h}")
             role, content = msg["role"], msg["content"]
             # print(f"Currently merging: {role}, {content}")
-            # If starting: just append message
+            # Every branch appends a copy: `merged.append(msg)` would alias the
+            # stored dict, so the concatenation below would edit `self._h`.
             if merged == []:
-                merged.append(msg)
+                merged.append(copy(msg))
             # Else if current role same as previous
             elif merged[-1]["role"] == role:
-                merged[-1]["content"] += f"\n\n {content}"
+                # Formatting rather than `+=` so that a non-string content
+                # (the routing actor stores a dict) merges instead of raising.
+                merged[-1]["content"] = f"{merged[-1]['content']}\n\n {content}"
             # Else just append as separate message
             elif merged[-1]["role"] != role:
-                # THIS SON OF A @!#$!#@$!#@$
-                # for some reason when I did `merged.append(msg)`
-                # This would change `self._h`
-                # So I had to do this workaround
-                # IT TOOK ME A DAY TO NARROW DOWN THE PROBLEM TO THIS
-                # STRETCH OF CODE AKSUHDKASJDGKASJFHGDAJDS
                 merged.append(copy(msg))
 
         return merged
@@ -107,14 +104,16 @@ class History:
             retval = self.get_merged()
         else:
             retval = self._h
-        # History may contain non-string messages (like dicts or lists), so convert all "content" messages to strings
-        for i, msg in enumerate(retval):
-            if 'content' in msg:
-                content = msg["content"]
-                if not isinstance(content, str):
-                    msg["content"] = str(content)
-                    retval[i] = msg
-        return retval
+        # History may contain non-string messages (like dicts or lists), so
+        # return copies whose "content" is stringified. Copying matters: callers
+        # such as the API serializers would otherwise turn the routing actor's
+        # stored dict into a string, breaking `{route}['function']` next turn.
+        return [
+            {**msg, "content": str(msg["content"])}
+            if ("content" in msg) and not isinstance(msg["content"], str)
+            else copy(msg)
+            for msg in retval
+        ]
     
     def set_values(self, content: List[dict]):
 
@@ -229,7 +228,16 @@ class Store:
             return self.store[var_name]
         else:
             return None 
-        
+
+    def has(self, var_name) -> bool:
+        """True when `var_name` was assigned, even if its value is None.
+
+        `get` cannot express this: a variable deliberately set to None and a
+        variable that was never set both read back as None.
+        """
+
+        return var_name in self.store
+
     def set(self, var_name, value):
         self.store[var_name] = value
 

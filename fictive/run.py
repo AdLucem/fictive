@@ -1,7 +1,6 @@
 import argparse
 from copy import deepcopy
 import json 
-import transformers
 import traceback
 
 from llm_utils import pipeline_config_from_args, pipeline_from_config
@@ -11,7 +10,12 @@ from .debugger import DebuggerSession
 from .interpreter import Interpreter
 from .data_structures import Store
 
-transformers.logging.set_verbosity_error()
+try:  # transformers is optional; imported only to quiet its logger
+    import transformers
+
+    transformers.logging.set_verbosity_error()
+except ImportError:  # pragma: no cover - depends on optional dependency
+    pass
 
 
 def run_single_actor(interpreter: Interpreter, actor_name: str):
