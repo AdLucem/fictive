@@ -40,6 +40,14 @@ from typing import Any, Callable, Generator, Literal, Optional
 from .parser.commands import Cmd, CommandObj
 from .actors import Actor
 from .interpreter import Interpreter
+from .data_structures import Store
+
+try:  # transformers is optional; imported only to quiet its logger
+    import transformers
+
+    transformers.logging.set_verbosity_error()
+except ImportError:  # pragma: no cover - depends on optional dependency
+    pass
 
 
 HELP_TEXT = "\n".join(

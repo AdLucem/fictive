@@ -586,12 +586,17 @@ class Interpreter:
         return prompt_obj
 
     def store_fetch(self, key):
+        """The stored value for `key`, raising only if it was never assigned.
 
-        value = self.store.get(key)
-        if value is not None:
-            return value
-        else:
-            raise Exception(f"Variable name {key} not in memory store")
+        Presence, not truthiness. Testing `is not None` meant a variable
+        deliberately assigned `None` -- an optional argument a router left out,
+        say -- raised "not in memory store", which is a different and
+        misleading complaint.
+        """
+
+        if self.store.has(key):
+            return self.store.get(key)
+        raise Exception(f"Variable name {key} not in memory store")
     
     def actor_fetch(self, name):
         
