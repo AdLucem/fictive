@@ -10,7 +10,15 @@ from .data_structures import Store
 from .parse_scenario_config import load_scenario_config
 from .run import run_debug, run_chat, run_single_actor
 from .debugger import DebuggerSession
-from .library_runtime import Runtime
+from .library_runtime import (
+    DebugQuit,
+    Flow,
+    InputRequest,
+    Runtime,
+    ask,
+    call_actor,
+    drive_flow,
+)
 
 __all__ = [
     "Actor",
@@ -29,5 +37,11 @@ __all__ = [
     "run_debug",
     "run_single_actor",
     "DebuggerSession",
-    "Runtime"
+    "DebugQuit",
+    "Flow",
+    "InputRequest",
+    "Runtime",
+    "ask",
+    "call_actor",
+    "drive_flow",
 ]

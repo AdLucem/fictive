@@ -225,6 +225,23 @@ helpers and SGLang integration.
   - `run_single_actor` for single-actor testing that replaces inter-actor
     dependencies with user prompts where needed
 
+- `fictive/library_runtime.py`
+  The other way to run a scenario: instead of a JSON instruction list, import
+  the library and call interpreter commands from Python, letting Python's own
+  `if`, `while` and function calls supply the control flow. It provides:
+  - `Runtime`, a typed facade where each method (`system`, `generate`,
+    `input_from_store`, `write`, `enter_actor`, ...) is one interpreter command
+    executed against whichever actor currently holds control. It records every
+    command in `trace`, exposes the one generation a host should display via
+    `visible_generate`/`last_visible`, and with `mode="debug"` stops at a
+    `debug> ` prompt before each command.
+  - `InputRequest` plus `ask`, so a scenario written as a generator suspends at
+    exactly the points that need a human answer and resumes through
+    `generator.send(...)`. A blocking terminal driver (`drive_flow`) and a host
+    that resumes the scenario once per HTTP request drive the same generator.
+  - `call_actor`, which is `run-actor` plus the callee's own steps plus the
+    callstack unwind, as a single Python call.
+
 ### Package: `fictive/parser/`
 
 - `fictive/parser/__init__.py`
