@@ -1,6 +1,10 @@
 import argparse
 from copy import deepcopy
 import json 
+try:
+    import transformers
+except ImportError:  # optional: only used to quiet its own logger
+    transformers = None
 import traceback
 
 from llm_utils import pipeline_config_from_args, pipeline_from_config

@@ -586,10 +586,14 @@ class Interpreter:
         return prompt_obj
 
     def store_fetch(self, key):
+        """The stored value for `key`, raising only if it was never assigned.
 
-        # Presence, not truthiness: a variable assigned None (for instance a
-        # router argument that was absent) is set, and must read back as None
-        # rather than raising as if it had never been assigned.
+        Presence, not truthiness. Testing `is not None` meant a variable
+        deliberately assigned `None` -- an optional argument a router left out,
+        say -- raised "not in memory store", which is a different and
+        misleading complaint.
+        """
+
         if self.store.has(key):
             return self.store.get(key)
         raise Exception(f"Variable name {key} not in memory store")
