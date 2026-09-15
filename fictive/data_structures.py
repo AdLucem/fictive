@@ -33,11 +33,18 @@ class History:
         merged = []
         for msg in self._h:
             role, content = msg["role"], msg["content"]
-            if not merged:
+            # print(f"Currently merging: {role}, {content}")
+            # Every branch appends a copy: `merged.append(msg)` would alias the
+            # stored dict, so the concatenation below would edit `self._h`.
+            if merged == []:
                 merged.append(copy(msg))
+            # Else if current role same as previous
             elif merged[-1]["role"] == role:
+                # Formatting rather than `+=` so that a non-string content
+                # (the routing actor stores a dict) merges instead of raising.
                 merged[-1]["content"] = f"{merged[-1]['content']}\n\n {content}"
-            else:
+            # Else just append as separate message
+            elif merged[-1]["role"] != role:
                 merged.append(copy(msg))
 
         return merged

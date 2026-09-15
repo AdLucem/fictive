@@ -18,8 +18,12 @@ from .debugger import DebuggerSession
 from .interpreter import Interpreter
 from .data_structures import Store
 
-if transformers is not None:
+try:  # transformers is optional; imported only to quiet its logger
+    import transformers
+
     transformers.logging.set_verbosity_error()
+except ImportError:  # pragma: no cover - depends on optional dependency
+    pass
 
 
 HELP_TEXT = "\n".join(
@@ -43,6 +47,8 @@ HELP_TEXT = "\n".join(
 class Runtime:
 
     def __init__(self, interpreter: Interpreter, start_actor_name: str, mode: Literal["debug", "chat", "single-actor"] = "chat"):
+
+        self.HELP_TEXT = HELP_TEXT
         
         self.interpreter = interpreter
         self.start_actor_name = start_actor_name
