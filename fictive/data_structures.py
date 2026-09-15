@@ -16,10 +16,22 @@ class History:
         self._h = copy(init_list)
 
     def get_merged(self):
-        
+        """Consecutive same-role messages merged into one, as fresh dicts.
+
+        Every append is a `copy`, including the first. Appending the stored
+        dict and then merging into it edits the caller's history in place --
+        which is what the long-standing comment about losing a day to this was
+        describing. The copy was applied to the append-as-separate branch but
+        not to the first message, so `_h[0]` was still corrupted whenever the
+        second message shared its role.
+
+        Content is joined with an f-string rather than `+=` so a non-string
+        content concatenates instead of raising: the routing actor stores its
+        parsed route as a dict.
+        """
+
         merged = []
-        for i, msg in enumerate(self._h):
-            # print(f"MERGE STEP {i}: {self._h}")
+        for msg in self._h:
             role, content = msg["role"], msg["content"]
             # print(f"Currently merging: {role}, {content}")
             # Every branch appends a copy: `merged.append(msg)` would alias the
@@ -97,23 +109,28 @@ class History:
             raise Exception(f"Input message {sequence} to History.add_sequence() in wrong format.")
 
     def read(self, merged=True) -> List[dict]:
-        # Reading by default returns the merged history
-        # i.e: the history with consecutive user/assistant messages
-        # merged
-        if merged:
-            retval = self.get_merged()
-        else:
-            retval = self._h
-        # History may contain non-string messages (like dicts or lists), so
-        # return copies whose "content" is stringified. Copying matters: callers
-        # such as the API serializers would otherwise turn the routing actor's
-        # stored dict into a string, breaking `{route}['function']` next turn.
-        return [
-            {**msg, "content": str(msg["content"])}
-            if ("content" in msg) and not isinstance(msg["content"], str)
-            else copy(msg)
-            for msg in retval
-        ]
+        """The history as fresh dicts, every `content` rendered as a string.
+
+        Reading by default returns the merged history, i.e. with consecutive
+        same-role messages combined.
+
+        History may hold a non-string `content` -- a dict or a list, for a
+        function-calling model -- and a reader wants text. Stringifying used to
+        happen on the stored messages themselves, so one read flattened a
+        structured content for every later reader too. The copies here are what
+        keep `read` a read; see `test_read_returns_strings_only`, which has
+        always asserted this and used to pass only because the one message that
+        got aliased happened to hold a string.
+        """
+
+        source = self.get_merged() if merged else self._h
+        out = []
+        for msg in source:
+            msg = copy(msg)
+            if "content" in msg and not isinstance(msg["content"], str):
+                msg["content"] = str(msg["content"])
+            out.append(msg)
+        return out
     
     def set_values(self, content: List[dict]):
 
@@ -230,14 +247,15 @@ class Store:
             return None 
 
     def has(self, var_name) -> bool:
-        """True when `var_name` was assigned, even if its value is None.
+        """Whether `var_name` was ever assigned.
 
-        `get` cannot express this: a variable deliberately set to None and a
-        variable that was never set both read back as None.
+        `get` cannot answer this: an unassigned variable and one deliberately
+        assigned `None` both read back as `None`, so a caller that needs to
+        tell "no value" from "the value is nothing" has to ask here.
         """
-
         return var_name in self.store
 
+        
     def set(self, var_name, value):
         self.store[var_name] = value
 
