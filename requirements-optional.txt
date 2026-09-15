@@ -1,3 +1,7 @@
 # Optional serving/runtime backends
 vllm
 sglang
+# Optional `rag-generate` backends: Bedrock Knowledge Bases, and local LlamaIndex
+boto3
+llama-index-core>=0.14.24,<0.15
+llama-index-embeddings-huggingface>=0.8.0,<0.9

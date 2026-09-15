@@ -59,7 +59,7 @@ class Runtime:
 
     def cmd_exec(self, command: str, **kwargs):
 
-        cmd = Cmd(command).map_to_dataclass()(**kwargs)
+        cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 
         if self.mode == "debug":
             exit_message = self.get_exit_message()
@@ -80,6 +80,17 @@ class Runtime:
             
         acting_actor_name = self.working_actor.name
         return self.interpreter, acting_actor_name
+
+    def save_session(self, path=None, session_id=None):
+        """Save the whole interpreter session; see `Interpreter.save_session`."""
+        return self.interpreter.save_session(path=path, session_id=session_id)
+
+    def load_session(self, path=None, session_id=None) -> str:
+        """Load a saved session and hand control to the top of its callstack."""
+        loaded_id = self.interpreter.load_session(path=path, session_id=session_id)
+        if self.interpreter.callstack:
+            self.working_actor = self.interpreter.actor_fetch(self.interpreter.callstack[-1])
+        return loaded_id
 
     def handle_command(self, raw_command: str) -> list[str]:
         raw_command = raw_command.strip()

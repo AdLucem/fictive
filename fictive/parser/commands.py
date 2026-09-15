@@ -26,6 +26,9 @@ class Cmd(StrEnum):
     PRINT_LATEST = "print-latest"
     COND = "cond"
     EXIT = "exit"
+    SAVE_CONVERSATION = "save-conversation"
+    LOAD_CONVERSATION = "load-conversation"
+    RAG_GENERATE = "rag-generate"
 
     @staticmethod
     def define_map():
@@ -47,8 +50,16 @@ class Cmd(StrEnum):
             Cmd.PRINT_LATEST: PRINT_LATEST,
             Cmd.COND: COND,
             Cmd.EXIT: EXIT,
+            Cmd.SAVE_CONVERSATION: SAVE_CONVERSATION,
+            Cmd.LOAD_CONVERSATION: LOAD_CONVERSATION,
+            Cmd.RAG_GENERATE: RAG_GENERATE,
         }
         return command_maps
+
+    @staticmethod
+    def from_name(command_name: str) -> "Cmd":
+        """Look up a command by name, accepting `_` for `-`, so `rag_generate` is `rag-generate`."""
+        return Cmd(str(command_name).replace("_", "-"))
     
     def map_to_dataclass(self):
         """
@@ -219,8 +230,52 @@ class EXIT(CommandObj):
     name = "exit"
 
 
+@dataclass
+class SAVE_CONVERSATION(CommandObj):
+    """Save the whole interpreter session to a JSON file (by default `conversations/<session-id>.json` under the storage directory)."""
+
+    name = "save-conversation"
+    path: Optional[str | pathlib.Path] = None
+    session_id: Optional[str] = None
+    store: Optional[str] = None
+
+
+@dataclass
+class LOAD_CONVERSATION(CommandObj):
+    """Replace the whole interpreter session with one written by `save-conversation`."""
+
+    name = "load-conversation"
+    path: Optional[str | pathlib.Path] = None
+    session_id: Optional[str] = None
+
+    def __post_init__(self):
+        if (self.path is None) == (self.session_id is None):
+            raise ValueError("load-conversation takes exactly one of path or session-id.")
+
+
+@dataclass
+class RAG_GENERATE(CommandObj):
+    """Retrieve relevant past conversations, then generate the actor's next message from them."""
+
+    name = "rag-generate"
+    prompt: Optional[str | pathlib.Path | dict] = None
+    query: Optional[str | dict] = None
+    top_k: int = 4
+    actor_filter: Optional[str] = None
+    enclosing_prompt: Optional[str | pathlib.Path] = None
+    backend: Optional[str] = None
+    model_arn: Optional[str] = None
+    store: Optional[str] = None
+    sources_store: Optional[str] = None
+    fallback_on_retrieval_error: bool = False
+
+    def __post_init__(self):
+        if isinstance(self.top_k, bool) or not isinstance(self.top_k, int) or self.top_k < 1:
+            raise ValueError(f"rag-generate top-k must be a positive integer, got {self.top_k!r}.")
+
+
 def parse_command_dict(instr: dict) -> CommandObj:
-    cmd = Cmd(instr["cmd"])
+    cmd = Cmd.from_name(instr["cmd"])
     data_init = cmd.map_to_dataclass()
     cmd_data = deepcopy(instr)
     cmd_data.pop("cmd")

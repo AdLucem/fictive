@@ -32,6 +32,13 @@ backends = [
 dev = [
     "pytest",
 ]
+rag-bedrock = [
+    "boto3",
+]
+rag-local = [
+    "llama-index-core>=0.14.24,<0.15",
+    "llama-index-embeddings-huggingface>=0.8.0,<0.9",
+]
 
 [tool.setuptools]
 include-package-data = true

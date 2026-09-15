@@ -57,7 +57,10 @@ helpers and SGLang integration.
 - `pyproject.toml`
   Standard Python packaging metadata for the repository. It defines the
   installable project, runtime dependencies, editable-install support, and
-  package discovery for `fictive` and its subpackages.
+  package discovery for `fictive` and its subpackages. The optional extras
+  `rag-local` (LlamaIndex and Hugging Face embeddings) and `rag-bedrock`
+  (boto3) install the two `rag-generate` backends; `requirements-optional.txt`
+  lists the same packages.
 
 - `__init__.py`
   Compatibility package shim for vendored/submodule usage. If another
@@ -150,7 +153,8 @@ helpers and SGLang integration.
 
 - `fictive/__init__.py`
   Re-exports the main public entry points, including actors, the interpreter,
-  provider-neutral agent contracts, scenario loading helpers, and runtime
+  the RAG backends and their passage/result types, provider-neutral agent
+  contracts, scenario loading helpers, and runtime
   helpers from `run.py`. It also defines the explicit public export list used
   by the repo-root compatibility shim.
 
@@ -179,6 +183,11 @@ helpers and SGLang integration.
   subclass that calls the pipeline directly (e.g. custom actors defined in
   `centaurus/src/`) should use, so streaming support does not need
   reimplementing per subclass.
+  `Actor.state_dict()` / `load_state_dict(state)` capture and restore the
+  resumable runtime state that session files hold: unmerged history, system
+  prompt, `cur_step`, pending instructions, and `return_after_pending`.
+  `load_state_dict` rejects a step outside the actor's instruction list. A
+  subclass with runtime state of its own extends both methods.
 
 - `fictive/custom_actors.py`
   Defines actor subclasses with specialized output behavior, including
@@ -186,6 +195,7 @@ helpers and SGLang integration.
   from configuration. `Scorer.generate` accepts and forwards `on_delta` to
   every `super().generate(...)` call it makes, including its regeneration
   retries, since it calls the pipeline only through the base `Actor.generate`.
+  `Scorer` extends `state_dict` / `load_state_dict` with its `scores`.
 
 - `fictive/data_structures.py`
   Defines the in-memory containers used at runtime:
@@ -231,6 +241,31 @@ helpers and SGLang integration.
   -- an optional argument a router left out, say -- returns `None` instead of
   raising "not in memory store", which is a different and misleading
   complaint.
+  Session commands: `save-conversation` and `load-conversation`, plus
+  `Interpreter.save_session(path=None, session_id=None)` and
+  `load_session(path=None, session_id=None)` for hosts. Paths resolve against
+  the acting actor's storage directory for commands, and the main actor's for
+  the methods. Every interpreter starts with a fresh `session_id`, so
+  repeated saves update one file. `exec_current` is a thin wrapper around
+  `_exec_current_step`: a `save-conversation` executed in the step is written
+  only after the step's bookkeeping, so the file resumes on the next
+  instruction, and a `load-conversation` makes the step skip the bookkeeping
+  it computed for the state that was just replaced.
+  `rag-generate` resolves a backend with `fictive.rag.backend_kind`, cached per
+  `(kind, storage_dir)` in `rag_backends`. A Bedrock backend retrieves and
+  generates, reusing the per-actor `rag_sessions` id. With the local backend,
+  the interpreter wraps the retrieved passages into the pipeline's copy of the
+  last user message and generates through `_run_pipeline`, streaming through
+  `on_generate_delta` like `generate`. The command's prompt joins history
+  only after the backend call succeeds.
+  `Interpreter(rag_backend=..., conversations_dir=...)` lets a host supply the
+  backend, used whenever a command names no `backend`, and one directory for
+  every session file and the local index (`conversations_root`). A
+  `rag-generate` `query` retrieves on something other than the prompt,
+  `fallback-on-retrieval-error` answers without context when retrieval raises,
+  and nothing retrieved sends the conversation unwrapped.
+  `resolve_prompt_path` treats a string too long to be a path as literal text
+  instead of raising `OSError`.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -252,6 +287,65 @@ helpers and SGLang integration.
   `TransformersPipeline` needs it for local inference -- but an API-only
   install can now import either entry module without it.
 
+- `fictive/library_runtime.py`
+  `Runtime`, for hosts that drive the interpreter one command at a time with
+  `cmd_exec(command, **kwargs)` instead of stepping scenario JSON.
+  `cmd_exec` accepts `_` for `-` in command names. `save_session(...)` and
+  `load_session(...)` delegate to the interpreter; after a load,
+  `working_actor` becomes the top of the restored callstack.
+
+- `fictive/session.py`
+  Saves and restores a whole interpreter session as one JSON file
+  (`"format": "fictive-session"`, `"version": 1`).
+  - What a file holds: every actor's `Actor.state_dict()` (unmerged history,
+    system prompt, `cur_step`, pending `cond` block, `return_after_pending`,
+    plus subclass state such as `Scorer.scores`). It also holds the shared
+    store, the waiting store, the callstack, and `Interpreter.rag_sessions`.
+  - What it leaves out: instructions and pipelines, which come from the
+    scenario. `restore_interpreter` requires the file's actor names to equal
+    the interpreter's. It restores all or nothing, putting the previous state
+    back if any actor rejects its saved state.
+  - `command_to_dict` is the inverse of `parse_command_dict`, including the
+    commands nested in `cond` branches, so pending blocks survive a round trip.
+  - `write_session_file` writes atomically and has no `default=str`: a store
+    value that is not JSON-serializable raises `TypeError` naming the variable,
+    rather than loading back as its string form.
+  - Default location: `<storage_dir>/conversations/<session_id>.json`. A session
+    id must be one plain path segment (`validate_session_id`).
+  - `render_transcript` turns a saved history into the plain text the local RAG
+    backend indexes.
+
+- `fictive/rag/`
+  Backends for the `rag-generate` command. Neither backend module is imported
+  until one is built, so importing `fictive` never imports `boto3` or
+  `llama_index`. The package reads `os.environ` but never loads a `.env` file.
+  - `rag/__init__.py`: `RetrievedPassage`, `RagResult`, and the `RagBackend`
+    protocol (`generates_natively`, `retrieve`, `retrieve_and_generate`). Also
+    backend selection: `backend_kind(override)` returns `bedrock` when
+    `KNOWLEDGE_BASE_ID` is set and `local` otherwise, and `build_rag_backend`
+    builds one. It also holds the helpers that format passages into the
+    default enclosing prompt.
+  - `rag/bedrock.py`: `BedrockKnowledgeBaseBackend`, over boto3's
+    `bedrock-agent-runtime` client. `retrieve_and_generate` calls
+    `RetrieveAndGenerate` with `KNOWLEDGE_BASE_ID` and `BEDROCK_MODEL_ARN` (or
+    the command's `model-arn`), passes the actor's system prompt as the
+    generation prompt template, reuses a per-actor `sessionId`, and maps
+    citations to passages. It only queries the Knowledge Base; loading data
+    into it happens outside fictive. `native_generation=False` makes it
+    retrieve-only, through `Retrieve`, with the actor's pipeline generating.
+  - `rag/local.py`: `LlamaIndexConversationBackend`. It holds one LlamaIndex
+    document per (session file, actor) transcript, plus one per
+    host-supplied `document_paths` file, persisted in
+    `<conversations dir>/.rag_index/`. `actors` limits which transcripts are
+    indexed, `transcript_renderer` replaces
+    `fictive.session.render_transcript`, and `max_reference_passages` caps how
+    many results come from reference documents, leaving the rest to
+    conversations. `sync()` runs before every retrieval: it
+    re-embeds changed documents through `refresh_ref_docs` and deletes those
+    whose file is gone. Embeddings come from the Hugging Face model
+    `FICTIVE_RAG_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`). The current
+    session is excluded with a metadata filter.
+
 ### Package: `fictive/parser/`
 
 - `fictive/parser/__init__.py`
@@ -261,7 +355,10 @@ helpers and SGLang integration.
 - `fictive/parser/commands.py`
   Defines the command enum and the dataclass-backed command objects consumed by
   actors and the interpreter, including the scene-language `write` command for
-  file output and the bounded `agent` command.
+  file output and the bounded `agent` command, plus `save-conversation`,
+  `load-conversation` and `rag-generate`. `Cmd.from_name`, used by
+  `parse_command_dict` and `Runtime.cmd_exec`, accepts `_` for `-` in command
+  names, so `rag_generate` is `rag-generate`.
 
 - `fictive/parser/expressions.py`
   Expression helpers for the scenario language.
@@ -313,6 +410,19 @@ directories beneath that root. This prevents a scenario from widening host
 permissions and gives both Fictive and the standalone harness an independent
 containment check.
 
+Sessions and retrieval-augmented generation:
+
+1. `save-conversation` (or `Interpreter.save_session`) writes the whole session
+   to `<storage_dir>/conversations/<session_id>.json`.
+2. `load-conversation` (or `Interpreter.load_session`) restores one into an
+   interpreter built from the same scenario.
+3. `rag-generate` picks a backend. With `KNOWLEDGE_BASE_ID` set, it calls
+   Bedrock's `RetrieveAndGenerate` against that Knowledge Base, using
+   `BEDROCK_MODEL_ARN`. Otherwise the local LlamaIndex backend brings
+   `conversations/.rag_index/` up to date with the saved session files,
+   retrieves from sessions other than the current one, and the actor's
+   pipeline generates.
+
 For standard package installation, use:
 
 ```bash
@@ -356,7 +466,9 @@ language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
 ordered conditional branches through the `cond` command, which evaluates
 store-backed expressions and queues nested command blocks for the first
 matching branch, file output through the `write` command, and bounded agentic
-filesystem work through the `agent` command.
+filesystem work through the `agent` command. It can also save and reload a
+whole session with `save-conversation` / `load-conversation`, and generate
+from relevant past conversations with `rag-generate`.
 
 When actor definitions contain relative paths, `load_scenario_config(...)`
 resolves them relative to the scenario directory if the target exists there.

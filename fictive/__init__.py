@@ -11,6 +11,9 @@ from .parse_scenario_config import load_scenario_config
 from .run import run_debug, run_chat, run_single_actor
 from .debugger import DebuggerSession
 from .library_runtime import Runtime
+from .rag import RagResult, RetrievedPassage
+from .rag.bedrock import BedrockKnowledgeBaseBackend
+from .rag.local import LlamaIndexConversationBackend
 
 __all__ = [
     "Actor",
@@ -29,5 +32,9 @@ __all__ = [
     "run_debug",
     "run_single_actor",
     "DebuggerSession",
-    "Runtime"
+    "Runtime",
+    "RagResult",
+    "RetrievedPassage",
+    "BedrockKnowledgeBaseBackend",
+    "LlamaIndexConversationBackend",
 ]

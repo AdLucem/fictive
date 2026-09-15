@@ -17,6 +17,23 @@ from .agent_integration import (
     resolve_agent_workspace,
 )
 from .parser.commands import Cmd, CommandObj
+from .rag import (
+    DEFAULT_RAG_ENCLOSING_PROMPT,
+    backend_kind,
+    build_rag_backend,
+    fill_enclosing_prompt,
+    format_passages,
+)
+from .session import (
+    CONVERSATIONS_DIR,
+    default_session_path,
+    new_session_id,
+    read_session_file,
+    restore_interpreter,
+    snapshot_interpreter,
+    validate_session_id,
+    write_session_file,
+)
 from .actors import Actor 
 from .data_structures import Store 
 
@@ -29,7 +46,9 @@ class Interpreter:
                  main_actor_name=None,
                  store: Store=None,
                  agent_executor: AgentExecutor | None = None,
-                 agent_root: str | pathlib.Path | None = None):
+                 agent_root: str | pathlib.Path | None = None,
+                 rag_backend=None,
+                 conversations_dir: str | pathlib.Path | None = None):
 
         self.actors = dict([(actor.name, actor) for actor in actors])
 
@@ -71,6 +90,32 @@ class Interpreter:
         # Callstack
         init_callstack = main_actor_name if main_actor_name else actors[0].name
         self.callstack = [init_callstack]
+        self.main_actor_name = init_callstack
+
+        # Session files. Repeated saves default to this id, so one run
+        # updates one file instead of scattering copies for RAG to find.
+        self.session_id = new_session_id()
+        # Bedrock RetrieveAndGenerate session id per actor, reused across
+        # that actor's `rag-generate` calls and saved with the session.
+        self.rag_sessions: Dict[str, str] = {}
+        # A host-built RAG backend, used by every `rag-generate` that names no
+        # `backend` of its own. `None` means one is built from the environment;
+        # see `resolve_rag_backend`.
+        self.rag_backend = rag_backend
+        # Where session files go by default, and what the local RAG backend
+        # indexes, in place of `<storage_dir>/conversations`. A host that gives
+        # each conversation its own scratch storage directory sets this, so
+        # every conversation's sessions land in one place.
+        self.conversations_dir = (
+            pathlib.Path(conversations_dir) if conversations_dir is not None else None
+        )
+        # Built RAG backends, keyed by (kind, conversations directory).
+        self.rag_backends = {}
+        # Step bookkeeping for `save-conversation` / `load-conversation`
+        # inside `exec_current`; see there.
+        self._in_step = False
+        self._state_restored = False
+        self._deferred_saves = []
 
         self.exec_map = {
             "system": self.exec_SYSTEM,
@@ -86,6 +131,9 @@ class Interpreter:
             "print-latest": self.exec_PRINT_LATEST,
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
+            "save-conversation": self.exec_SAVE_CONVERSATION,
+            "load-conversation": self.exec_LOAD_CONVERSATION,
+            "rag-generate": self.exec_RAG_GENERATE,
         }
         
         # Optional hook for streaming display. When set, called as
@@ -126,6 +174,27 @@ class Interpreter:
         return acting_actor
 
     def exec_current(self):
+        """Execute one interpreter step; `_exec_current_step` is the step itself.
+
+        This wrapper holds the step-scoped state the session commands need: a
+        `save-conversation` in the step is written only after the step's
+        bookkeeping, and a `load-conversation` tells the step to skip that
+        bookkeeping. A step that raises writes nothing.
+        """
+        self._state_restored = False
+        self._deferred_saves = []
+        self._in_step = True
+        try:
+            next_actor = self._exec_current_step()
+            for path, session_id in self._deferred_saves:
+                self._write_session(path, session_id)
+        finally:
+            self._in_step = False
+            self._state_restored = False
+            self._deferred_saves = []
+        return next_actor
+
+    def _exec_current_step(self):
         """
         Execute one interpreter step for the actor at the top of the callstack.
 
@@ -165,6 +234,13 @@ class Interpreter:
         logging.debug(f"{actor_name} executing current instruction: {current_instr}")
 
         acting_actor = self.exec(current_instr, actor_name)
+
+        if self._state_restored:
+            # `load-conversation` replaced every step pointer and the
+            # callstack; the bookkeeping below describes the state it replaced.
+            if self.callstack == []:
+                return -1
+            return self.actor_fetch(self.callstack[-1])
 
         if current_instr.name == "exit":
             acting_actor.clear_pending_instructions()
@@ -365,11 +441,7 @@ class Interpreter:
         self.log_exec_command(cmd, actor_name)
         
         acting_actor = self.actors[actor_name]
-        on_delta = (
-            (lambda event: self.on_generate_delta(actor_name, event))
-            if self.on_generate_delta is not None
-            else None
-        )
+        on_delta = self._generate_delta_hook(actor_name)
         # If prompt is given, generate using prompt
         if cmd.prompt is not None:
             prompt = self.parse_prompt_object(cmd.prompt)
@@ -431,6 +503,240 @@ class Interpreter:
 
         self.actors[actor_name] = acting_actor
         return acting_actor
+
+    def exec_SAVE_CONVERSATION(self,
+                               cmd: type[CommandObj],
+                               actor_name: str) -> Actor:
+        """Save the whole session.
+
+        Inside `exec_current` the file is written only after the step's
+        bookkeeping, so it records the step pointers as they are after this
+        command, and a load resumes on the next instruction instead of saving
+        again. Called directly (as `Runtime.cmd_exec` does), it writes at once.
+        """
+        self.log_exec_command(cmd, actor_name)
+
+        acting_actor = self.actor_fetch(actor_name)
+        session_id = validate_session_id(cmd.session_id) if cmd.session_id else self.session_id
+        path = self.session_path(acting_actor, cmd.path, session_id)
+        if cmd.store:
+            self.store.set(cmd.store, str(path))
+
+        if self._in_step:
+            self._deferred_saves.append((path, session_id))
+        else:
+            self._write_session(path, session_id)
+        return acting_actor
+
+    def exec_LOAD_CONVERSATION(self,
+                               cmd: type[CommandObj],
+                               actor_name: str) -> Actor:
+        """Replace the whole session with a saved one, returning the actor at the top of the restored callstack."""
+        self.log_exec_command(cmd, actor_name)
+
+        acting_actor = self.actor_fetch(actor_name)
+        path = self.session_path(acting_actor, cmd.path, cmd.session_id)
+        self._load_session_file(path)
+
+        if self.callstack == []:
+            return acting_actor
+        return self.actor_fetch(self.callstack[-1])
+
+    def exec_RAG_GENERATE(self,
+                          cmd: type[CommandObj],
+                          actor_name: str) -> Actor:
+        """Retrieve passages from past conversations and append one assistant message.
+
+        A backend that `generates_natively` (Bedrock) retrieves and generates in
+        one call. Otherwise the backend only retrieves, and the actor's pipeline
+        generates from a copy of the history whose last user message is wrapped
+        in the enclosing prompt: the passages reach the model, never the stored
+        history.
+        """
+        self.log_exec_command(cmd, actor_name)
+
+        acting_actor = self.actor_fetch(actor_name)
+        backend = self.resolve_rag_backend(cmd.backend, acting_actor)
+        filters = {"actor": cmd.actor_filter} if cmd.actor_filter else None
+
+        prompt = None
+        if cmd.prompt is not None:
+            prompt = self.parse_prompt_object(self.resolve_prompt_path(cmd.prompt, acting_actor))
+            if isinstance(prompt, dict) and ("content" in prompt):
+                prompt = prompt["content"]
+            prompt = str(prompt)
+        query = self.rag_query(cmd, acting_actor, prompt)
+
+        # The prompt joins history only once the backend call has succeeded, so
+        # a missing optional dependency or an AWS error leaves the conversation
+        # as it was.
+        if backend.generates_natively:
+            system_prompt = None
+            if acting_actor.system_prompt:
+                system_prompt = acting_actor.system_prompt["content"]
+            result = backend.retrieve_and_generate(
+                query=query,
+                top_k=cmd.top_k,
+                filters=filters,
+                system_prompt=system_prompt,
+                session_id=self.rag_sessions.get(actor_name),
+                model_arn=cmd.model_arn,
+            )
+            if result.session_id:
+                self.rag_sessions[actor_name] = result.session_id
+            output, passages = result.output, result.passages
+            if prompt is not None:
+                acting_actor.history.add({"role": "user", "content": prompt})
+            acting_actor.history.add({"role": "assistant", "content": output})
+        else:
+            try:
+                passages = backend.retrieve(
+                    query=query,
+                    top_k=cmd.top_k,
+                    filters=filters,
+                    exclude_session_id=self.session_id,
+                )
+            except Exception:
+                # Retrieved context improves a reply; it is not the reply. A
+                # host that would rather answer without it than fail says so.
+                if not cmd.fallback_on_retrieval_error:
+                    raise
+                logging.warning(
+                    "rag-generate for %s: retrieval failed, generating without retrieved context",
+                    actor_name,
+                    exc_info=True,
+                )
+                passages = []
+            # Resolved before the prompt joins history, and only when there is
+            # something to wrap: nothing retrieved means the pipeline sees the
+            # conversation exactly as `generate` would have sent it.
+            enclosing_prompt = None
+            if passages:
+                enclosing_prompt = DEFAULT_RAG_ENCLOSING_PROMPT
+                if cmd.enclosing_prompt is not None:
+                    enclosing_prompt = self.parse_prompt_object(
+                        self.resolve_prompt_path(cmd.enclosing_prompt, acting_actor)
+                    )
+            if prompt is not None:
+                acting_actor.history.add({"role": "user", "content": prompt})
+
+            messages = acting_actor.history.read()
+            if passages:
+                last_user = max(i for i, msg in enumerate(messages) if msg["role"] == "user")
+                messages[last_user]["content"] = fill_enclosing_prompt(
+                    enclosing_prompt, format_passages(passages), messages[last_user]["content"]
+                )
+            response = acting_actor._run_pipeline(messages, self._generate_delta_hook(actor_name))
+            acting_actor.history.add(response)
+            output = response["content"]
+
+        if cmd.store:
+            self.store.set(cmd.store, output)
+        if cmd.sources_store:
+            self.store.set(cmd.sources_store, [passage.to_dict() for passage in passages])
+
+        logging.info(
+            "rag-generate for %s: backend=%s passages=%d",
+            actor_name, type(backend).__name__, len(passages),
+        )
+        self.actors[actor_name] = acting_actor
+        return acting_actor
+
+    def _generate_delta_hook(self, actor_name: str):
+        """`on_generate_delta` bound to `actor_name`, or `None` when it is unset."""
+        if self.on_generate_delta is None:
+            return None
+        return lambda event: self.on_generate_delta(actor_name, event)
+
+    def resolve_rag_backend(self, override: Optional[str], actor: Actor):
+        """The backend a `rag-generate` uses.
+
+        The host's `rag_backend` unless the command names a `backend`;
+        otherwise one built from the environment (`fictive.rag.backend_kind`)
+        over the actor's conversations directory, and kept for reuse.
+        """
+        if override is None and self.rag_backend is not None:
+            return self.rag_backend
+        kind = backend_kind(override)
+        conversations = self.conversations_root(actor)
+        key = (kind, str(conversations))
+        if key not in self.rag_backends:
+            self.rag_backends[key] = build_rag_backend(kind, conversations)
+        return self.rag_backends[key]
+
+    def rag_query(self, cmd: type[CommandObj], actor: Actor, prompt: Optional[str]) -> str:
+        """What `rag-generate` retrieves on: `query`, else the prompt, else the latest user message.
+
+        `query` is literal text, a message dict, or `var:<store-name>`. Unlike a
+        prompt it is never read as a file path: it is usually someone's words.
+        """
+        if cmd.query is None:
+            return prompt if prompt is not None else self.latest_user_message(actor)
+        query = cmd.query
+        if isinstance(query, dict) and ("content" in query):
+            query = query["content"]
+        elif isinstance(query, str) and query.startswith("var:"):
+            query = self.store_fetch(query[len("var:"):])
+        return str(query)
+
+    def latest_user_message(self, actor: Actor) -> str:
+        for msg in reversed(actor.history.read(merged=False)):
+            if msg["role"] == "user":
+                return msg["content"]
+        raise ValueError(
+            f"rag-generate for actor {actor.name!r} needs a prompt or a user message in its history."
+        )
+
+    def session_path(self, actor: Actor, path=None, session_id=None) -> pathlib.Path:
+        """`path` resolved like `write`'s, else `<session_id>.json` in `conversations_root(actor)`."""
+        if path is not None:
+            return self.resolve_actor_path(path, actor)
+        return self.conversations_root(actor) / default_session_path(session_id or self.session_id).name
+
+    def conversations_root(self, actor: Actor) -> pathlib.Path:
+        """Where session files go and the local RAG backend looks.
+
+        `conversations_dir` when the host set one, else `conversations/` in the
+        actor's storage directory.
+        """
+        if self.conversations_dir is not None:
+            return self.conversations_dir
+        return self.resolve_actor_path(CONVERSATIONS_DIR, actor)
+
+    def save_session(self, path=None, session_id=None) -> pathlib.Path:
+        """Save the whole session now and return the file written.
+
+        A relative `path` resolves against the main actor's storage directory;
+        without one the file goes to `conversations_root`. `session_id`
+        defaults to this interpreter's, so repeated saves update one file. See
+        `fictive/session.py` for the format.
+        """
+        session_id = validate_session_id(session_id) if session_id else self.session_id
+        path = self.session_path(self.actor_fetch(self.main_actor_name), path, session_id)
+        return self._write_session(path, session_id)
+
+    def load_session(self, path=None, session_id=None) -> str:
+        """Replace the whole session with a saved one and return its session id.
+
+        Takes exactly one of `path` or `session_id`, resolved against the main
+        actor's storage directory.
+        """
+        if (path is None) == (session_id is None):
+            raise ValueError("load_session takes exactly one of path or session_id.")
+        path = self.session_path(self.actor_fetch(self.main_actor_name), path, session_id)
+        return self._load_session_file(path)
+
+    def _write_session(self, path, session_id: str) -> pathlib.Path:
+        written = write_session_file(path, snapshot_interpreter(self, session_id))
+        self.session_id = session_id
+        return written
+
+    def _load_session_file(self, path) -> str:
+        doc = read_session_file(path)
+        restore_interpreter(self, doc)
+        self.session_id = doc["session_id"]
+        self._state_restored = True
+        return self.session_id
 
     def exec_PRINT(self,
                    cmd: type[CommandObj],
@@ -580,7 +886,13 @@ class Interpreter:
             return prompt_obj
 
         resolved_path = self.resolve_actor_path(prompt_obj, actor)
-        if resolved_path.is_file():
+        # A long literal prompt is not a path at all, and asking the filesystem
+        # about it raises (ENAMETOOLONG) rather than answering False.
+        try:
+            is_file = resolved_path.is_file()
+        except OSError:
+            is_file = False
+        if is_file:
             return resolved_path
 
         return prompt_obj
