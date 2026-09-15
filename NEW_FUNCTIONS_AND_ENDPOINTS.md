@@ -4,7 +4,7 @@
 
 ## fictive (`centaurus/fictive`, branch `farhan`)
 
-One small commit on top of `main`: "Stop History.read() mutating stored messages; make transformers optional". No new public API surface except `Store.has`; the rest are behaviour fixes that Centaurus's routing actor depends on.
+The fixes below (commit "Stop History.read() mutating stored messages; make transformers optional") already reached `main` through fictive #4 and #5. Against `main`, `farhan` now differs only in its llm-utils submodule pointer. `Store.has` is the only new public API; the rest are behaviour fixes that Centaurus's routing actor depends on.
 
 ### `fictive/data_structures.py`
 
@@ -48,4 +48,4 @@ Inputs / Outputs: n/a.
 
 ### Other
 - `DOCS.md`: describes the copy semantics of `History.read`/`get_merged`, `Store.has`, and the optional `transformers` import. (The `on_delta` / `Interpreter.on_generate_delta` streaming hooks that Centaurus's SSE console uses were already on `main`.)
-- Submodule pointer `llm-utils` advanced to the llm-utils `farhan` commit.
+- Submodule pointer `llm-utils` advanced to the llm-utils `farhan` head, which includes llm-utils `5451c8d` (the commit fictive `main` pinned before), so the bump drops nothing.
