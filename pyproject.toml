@@ -35,6 +35,15 @@ dev = [
 rag-bedrock = [
     "boto3",
 ]
+bedrock = [
+    "anthropic>=0.40",
+    "boto3",
+    "botocore[crt]",
+]
+web-search = [
+    "boto3",
+    "botocore[crt]",
+]
 rag-local = [
     "llama-index-core>=0.14.24,<0.15",
     "llama-index-embeddings-huggingface>=0.8.0,<0.9",

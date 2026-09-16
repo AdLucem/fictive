@@ -370,3 +370,70 @@ Example:
   "sources-store": "answer-sources"
 }
 ```
+
+### Command: `web-search-and-generate`
+
+Also accepted as `web_search_and_generate` and `webSearchAndGenerate`. Searches
+the web and generates the acting actor's next message from the results.
+
+Command names resolve in any separator style or case, so this is a general rule
+rather than a special case for this command: `rag_generate`, `ragGenerate`,
+`print-latest` and `printLatest` all resolve too. The canonical name, the one
+saved sessions record, stays the hyphenated spelling.
+
+The backend is chosen when the command runs. A host can hand the interpreter a
+backend of its own, `Interpreter(web_search_backend=...)`, which is used
+whenever the command names no `backend`. Otherwise:
+
+- **`agentcore`** is the default and only built-in backend. It calls an Amazon
+  Bedrock AgentCore Gateway fronting the AWS-managed Web Search Tool connector,
+  over MCP, signing each request with SigV4 for the `bedrock-agentcore`
+  service. The gateway URL comes from `WEBSEARCH_GATEWAY_URL`, or from the
+  `GatewayUrl` output of the CloudFormation stack named by
+  `WEBSEARCH_GATEWAY_STACK`. Region and credentials come from
+  `WEBSEARCH_REGION` and `WEBSEARCH_PROFILE`, else boto3's standard chain
+  (`AWS_REGION`, `AWS_PROFILE`, ...). Requires
+  `pip install 'fictive[web-search]'`. Creating and deploying the gateway
+  happens outside fictive.
+
+Bedrock has no server-side `web_search` tool: it serves Anthropic's client
+tools, such as bash and the text editor, but not the server tools that run on
+Anthropic's own infrastructure. The gateway is what stands in for one. Note
+that this command runs the search itself and puts the results in the prompt; it
+does not hand the model a tool to call.
+
+```
+Params:
+
+- prompt: Optional[str | Path | dict] = "Literal text, a prompt file, a message object, or `var:<store-name>`, appended to history as a user message like `generate`'s prompt. It is also the search query, unless `query` is given."
+- query: Optional[str | dict] = "What to search for: literal text, a message object, or `var:<store-name>`, never read as a file path. Defaults to the prompt, else the latest user message in history. Truncated to 200 characters, the connector's limit, with a warning."
+- max-results: Optional[int] = 5 ::= "How many results to ask for, between 1 and 25."
+- enclosing-prompt: Optional[str | Path] = "Wraps the results (`{CONTEXT}`, required) and the conversation's last user message (`{INPUT}`, or appended after the prompt when absent) for the model. A default is built in."
+- backend: Optional[str] = "`agentcore`, overriding the environment's choice."
+- filters: Optional[dict] = "Passed to the connector as its `filters` argument, for per-request domain and published-date filtering."
+- store: Optional[str] = "Name of a store variable to receive the generated text."
+- sources-store: Optional[str] = "Name of a store variable to receive the results, as a list of `{text, score, source, metadata}`, where `source` is the result URL."
+- fallback-on-search-error: Optional[bool] = false ::= "When the search raises -- an unreachable gateway, a missing dependency -- log a warning and generate without web results instead of failing."
+```
+
+Exactly one assistant message is appended to the actor's history. Results are
+never stored in history: they are added only to the copy of the conversation
+sent to the pipeline, so history does not grow with search text on every turn.
+The prompt joins history only once the search has returned, so a failed search
+leaves the conversation as it was. When nothing is found, the copy is sent
+unwrapped, exactly as `generate` would send it. The model sees the actor's whole
+conversation, and the output streams through `Interpreter.on_generate_delta`
+like `generate`.
+
+Example:
+
+```json
+{
+  "cmd": "web-search-and-generate",
+  "prompt": "var:teacher-question",
+  "max-results": 5,
+  "store": "answer",
+  "sources-store": "answer-sources",
+  "fallback-on-search-error": true
+}
+```

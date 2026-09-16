@@ -316,6 +316,20 @@ The main command handlers are:
   never into history. `store` receives the text and `sources-store` the
   passages.
 
+- `web-search-and-generate`
+  Searches the web through a `WebSearchBackend` and appends one assistant
+  message generated from the results. The default `agentcore` backend speaks
+  MCP to a Bedrock AgentCore Gateway fronting the AWS-managed Web Search
+  connector, SigV4-signed for `bedrock-agentcore`; Bedrock has no server-side
+  `web_search` tool, which is why the gateway exists. Results are wrapped into
+  the pipeline's copy of the last user message only, never into history, the
+  same mechanism the retrieval-only `rag-generate` path uses. `store` receives
+  the text and `sources-store` the results. `fallback-on-search-error` turns an
+  unreachable gateway into a warning and a search-free reply. Also accepted as
+  `webSearchAndGenerate`: `Cmd._missing_` resolves any separator style or case,
+  so `ragGenerate` and `printLatest` resolve too, while the canonical
+  hyphenated name is what `exec_map` and saved sessions use.
+
 ### 9. Condition Evaluation
 
 `cond` uses `Interpreter.evaluate_condition(...)`.

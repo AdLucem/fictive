@@ -18,12 +18,23 @@ for _submodule_name in (
     "actors",
     "custom_actors",
     "data_structures",
+    "debugger",
     "interpreter",
+    "library_runtime",
+    "bedrock_runtime",
     "parse_scenario_config",
     "run",
+    "session",
     "parser",
     "parser.commands",
     "parser.expressions",
+    "pipelines",
+    "pipelines.bedrock",
+    "rag",
+    "rag.bedrock",
+    "rag.local",
+    "websearch",
+    "websearch.agentcore",
 ):
     _module = import_module(f".fictive.{_submodule_name}", __name__)
     sys.modules[f"{__name__}.{_submodule_name}"] = _module

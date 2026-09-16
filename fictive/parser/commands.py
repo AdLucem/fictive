@@ -1,4 +1,5 @@
 import pathlib
+import re
 from typing import Dict, List, Optional, Tuple
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -29,6 +30,28 @@ class Cmd(StrEnum):
     SAVE_CONVERSATION = "save-conversation"
     LOAD_CONVERSATION = "load-conversation"
     RAG_GENERATE = "rag-generate"
+    WEB_SEARCH_AND_GENERATE = "web-search-and-generate"
+
+    @classmethod
+    def _missing_(cls, value):
+        """Resolve a command name written in any separator style or case.
+
+        `from_name` already maps `_` to `-`, which covers `rag_generate`. This
+        also resolves camelCase and run-together spellings, so
+        `webSearchAndGenerate` is `web-search-and-generate`.
+
+        Resolution only: the member's value, and therefore the `name` on its
+        dataclass, stays canonical, so `Interpreter.exec_map` lookups and saved
+        sessions are unaffected. `Enum.__call__` only reaches here after an
+        exact-value match fails, so the canonical path costs nothing.
+        """
+        if not isinstance(value, str):
+            return None
+        key = re.sub(r"[-_\s]", "", value).casefold()
+        for member in cls:
+            if re.sub(r"[-_]", "", member.value).casefold() == key:
+                return member
+        return None
 
     @staticmethod
     def define_map():
@@ -53,6 +76,7 @@ class Cmd(StrEnum):
             Cmd.SAVE_CONVERSATION: SAVE_CONVERSATION,
             Cmd.LOAD_CONVERSATION: LOAD_CONVERSATION,
             Cmd.RAG_GENERATE: RAG_GENERATE,
+            Cmd.WEB_SEARCH_AND_GENERATE: WEB_SEARCH_AND_GENERATE,
         }
         return command_maps
 
@@ -272,6 +296,38 @@ class RAG_GENERATE(CommandObj):
     def __post_init__(self):
         if isinstance(self.top_k, bool) or not isinstance(self.top_k, int) or self.top_k < 1:
             raise ValueError(f"rag-generate top-k must be a positive integer, got {self.top_k!r}.")
+
+
+@dataclass
+class WEB_SEARCH_AND_GENERATE(CommandObj):
+    """Search the web, then generate the actor's next message from the results."""
+
+    name = "web-search-and-generate"
+    prompt: Optional[str | pathlib.Path | dict] = None
+    query: Optional[str | dict] = None
+    max_results: int = 5
+    enclosing_prompt: Optional[str | pathlib.Path] = None
+    backend: Optional[str] = None
+    filters: Optional[dict] = None
+    store: Optional[str] = None
+    sources_store: Optional[str] = None
+    fallback_on_search_error: bool = False
+
+    def __post_init__(self):
+        # `True` is an `int` and would otherwise pass the range check.
+        if (
+            isinstance(self.max_results, bool)
+            or not isinstance(self.max_results, int)
+            or not (1 <= self.max_results <= 25)
+        ):
+            raise ValueError(
+                "web-search-and-generate max-results must be an integer between 1 and 25, "
+                f"got {self.max_results!r}."
+            )
+        if self.filters is not None and not isinstance(self.filters, dict):
+            raise TypeError(
+                f"web-search-and-generate filters must be a dict, got {type(self.filters).__name__}."
+            )
 
 
 def parse_command_dict(instr: dict) -> CommandObj:

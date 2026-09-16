@@ -54,6 +54,12 @@ class Runtime:
         self.start_actor_name = start_actor_name
         self.working_actor = interpreter.actor_fetch(start_actor_name)
         self.mode = mode
+        # `handle_command`, `actor_or_main` and `get_exit_message` all read
+        # these, and neither was ever assigned: every `hist`/`actor`/`latest`
+        # with no actor name, and every exit message, raised AttributeError.
+        # Plain attributes, not properties: subclasses assign to them.
+        self.main_actor_name = interpreter.main_actor_name
+        self.main_actor = interpreter.actor_fetch(self.main_actor_name)
 
         self.exit_requested = False
 

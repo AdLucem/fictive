@@ -24,6 +24,11 @@ from .rag import (
     fill_enclosing_prompt,
     format_passages,
 )
+from .websearch import (
+    DEFAULT_WEB_SEARCH_ENCLOSING_PROMPT,
+    backend_kind as web_search_backend_kind,
+    build_web_search_backend,
+)
 from .session import (
     CONVERSATIONS_DIR,
     default_session_path,
@@ -48,7 +53,8 @@ class Interpreter:
                  agent_executor: AgentExecutor | None = None,
                  agent_root: str | pathlib.Path | None = None,
                  rag_backend=None,
-                 conversations_dir: str | pathlib.Path | None = None):
+                 conversations_dir: str | pathlib.Path | None = None,
+                 web_search_backend=None):
 
         self.actors = dict([(actor.name, actor) for actor in actors])
 
@@ -111,6 +117,13 @@ class Interpreter:
         )
         # Built RAG backends, keyed by (kind, conversations directory).
         self.rag_backends = {}
+        # A host-built web search backend, used by every
+        # `web-search-and-generate` that names no `backend` of its own. `None`
+        # means one is built from the environment; see
+        # `resolve_web_search_backend`.
+        self.web_search_backend = web_search_backend
+        # Built web search backends, keyed by kind.
+        self.web_search_backends = {}
         # Step bookkeeping for `save-conversation` / `load-conversation`
         # inside `exec_current`; see there.
         self._in_step = False
@@ -134,6 +147,7 @@ class Interpreter:
             "save-conversation": self.exec_SAVE_CONVERSATION,
             "load-conversation": self.exec_LOAD_CONVERSATION,
             "rag-generate": self.exec_RAG_GENERATE,
+            "web-search-and-generate": self.exec_WEB_SEARCH_AND_GENERATE,
         }
         
         # Optional hook for streaming display. When set, called as
@@ -622,10 +636,22 @@ class Interpreter:
 
             messages = acting_actor.history.read()
             if passages:
-                last_user = max(i for i, msg in enumerate(messages) if msg["role"] == "user")
-                messages[last_user]["content"] = fill_enclosing_prompt(
-                    enclosing_prompt, format_passages(passages), messages[last_user]["content"]
-                )
+                # An index list rather than `max(...)`: with an explicit `query`,
+                # no `prompt` and only a system message in history there is no
+                # user turn, and `max` of an empty sequence raises.
+                user_indices = [i for i, msg in enumerate(messages) if msg["role"] == "user"]
+                if user_indices:
+                    last_user = user_indices[-1]
+                    messages[last_user]["content"] = fill_enclosing_prompt(
+                        enclosing_prompt, format_passages(passages), messages[last_user]["content"]
+                    )
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": fill_enclosing_prompt(
+                            enclosing_prompt, format_passages(passages), ""
+                        ),
+                    })
             response = acting_actor._run_pipeline(messages, self._generate_delta_hook(actor_name))
             acting_actor.history.add(response)
             output = response["content"]
@@ -638,6 +664,94 @@ class Interpreter:
         logging.info(
             "rag-generate for %s: backend=%s passages=%d",
             actor_name, type(backend).__name__, len(passages),
+        )
+        self.actors[actor_name] = acting_actor
+        return acting_actor
+
+    def exec_WEB_SEARCH_AND_GENERATE(self,
+                                     cmd: type[CommandObj],
+                                     actor_name: str) -> Actor:
+        """Search the web and append one assistant message generated from the results.
+
+        The results reach the model and never the stored history: the actor's
+        pipeline generates from a copy of the history whose last user message is
+        wrapped in the enclosing prompt, exactly as the retrieval-only path of
+        `rag-generate` does.
+        """
+        self.log_exec_command(cmd, actor_name)
+
+        acting_actor = self.actor_fetch(actor_name)
+        backend = self.resolve_web_search_backend(cmd.backend)
+
+        prompt = None
+        if cmd.prompt is not None:
+            prompt = self.parse_prompt_object(self.resolve_prompt_path(cmd.prompt, acting_actor))
+            if isinstance(prompt, dict) and ("content" in prompt):
+                prompt = prompt["content"]
+            prompt = str(prompt)
+        query = self.web_search_query(cmd, acting_actor, prompt)
+
+        # The prompt joins history only once the search has returned, so an
+        # unreachable gateway or a missing optional dependency leaves the
+        # conversation as it was.
+        try:
+            results = backend.search(
+                query=query,
+                max_results=cmd.max_results,
+                filters=cmd.filters,
+            )
+        except Exception:
+            # Web results improve a reply; they are not the reply. A host that
+            # would rather answer without them than fail says so.
+            if not cmd.fallback_on_search_error:
+                raise
+            logging.warning(
+                "web-search-and-generate for %s: search failed, generating without web results",
+                actor_name,
+                exc_info=True,
+            )
+            results = []
+
+        # Resolved before the prompt joins history, and only when there is
+        # something to wrap: nothing found means the pipeline sees the
+        # conversation exactly as `generate` would have sent it.
+        enclosing_prompt = None
+        if results:
+            enclosing_prompt = DEFAULT_WEB_SEARCH_ENCLOSING_PROMPT
+            if cmd.enclosing_prompt is not None:
+                enclosing_prompt = self.parse_prompt_object(
+                    self.resolve_prompt_path(cmd.enclosing_prompt, acting_actor)
+                )
+        if prompt is not None:
+            acting_actor.history.add({"role": "user", "content": prompt})
+
+        # `history.read()` hands back fresh dicts, so wrapping one here reaches
+        # the pipeline without touching what the actor stores.
+        messages = acting_actor.history.read()
+        if results:
+            context = format_passages(results)
+            user_indices = [i for i, msg in enumerate(messages) if msg["role"] == "user"]
+            if user_indices:
+                last_user = user_indices[-1]
+                messages[last_user]["content"] = fill_enclosing_prompt(
+                    enclosing_prompt, context, messages[last_user]["content"]
+                )
+            else:
+                messages.append(
+                    {"role": "user", "content": fill_enclosing_prompt(enclosing_prompt, context, "")}
+                )
+        response = acting_actor._run_pipeline(messages, self._generate_delta_hook(actor_name))
+        acting_actor.history.add(response)
+        output = response["content"]
+
+        if cmd.store:
+            self.store.set(cmd.store, output)
+        if cmd.sources_store:
+            self.store.set(cmd.sources_store, [result.to_dict() for result in results])
+
+        logging.info(
+            "web-search-and-generate for %s: backend=%s results=%d",
+            actor_name, type(backend).__name__, len(results),
         )
         self.actors[actor_name] = acting_actor
         return acting_actor
@@ -664,6 +778,37 @@ class Interpreter:
             self.rag_backends[key] = build_rag_backend(kind, conversations)
         return self.rag_backends[key]
 
+    def resolve_web_search_backend(self, override: Optional[str] = None):
+        """The backend a `web-search-and-generate` uses.
+
+        The host's `web_search_backend` unless the command names a `backend`;
+        otherwise one built from the environment
+        (`fictive.websearch.backend_kind`), and kept for reuse.
+        """
+        if override is None and self.web_search_backend is not None:
+            return self.web_search_backend
+        kind = web_search_backend_kind(override)
+        if kind not in self.web_search_backends:
+            self.web_search_backends[kind] = build_web_search_backend(kind)
+        return self.web_search_backends[kind]
+
+    def web_search_query(self, cmd: type[CommandObj], actor: Actor, prompt: Optional[str]) -> str:
+        """What to search on: `query`, else the prompt, else the latest user message.
+
+        `query` is literal text, a message dict, or `var:<store-name>`. Unlike a
+        prompt it is never read as a file path: it is usually someone's words.
+        """
+        if cmd.query is None:
+            return prompt if prompt is not None else self.latest_user_message(
+                actor, command="web-search-and-generate"
+            )
+        query = cmd.query
+        if isinstance(query, dict) and ("content" in query):
+            query = query["content"]
+        elif isinstance(query, str) and query.startswith("var:"):
+            query = self.store_fetch(query[len("var:"):])
+        return str(query)
+
     def rag_query(self, cmd: type[CommandObj], actor: Actor, prompt: Optional[str]) -> str:
         """What `rag-generate` retrieves on: `query`, else the prompt, else the latest user message.
 
@@ -679,12 +824,12 @@ class Interpreter:
             query = self.store_fetch(query[len("var:"):])
         return str(query)
 
-    def latest_user_message(self, actor: Actor) -> str:
+    def latest_user_message(self, actor: Actor, command: str = "rag-generate") -> str:
         for msg in reversed(actor.history.read(merged=False)):
             if msg["role"] == "user":
                 return msg["content"]
         raise ValueError(
-            f"rag-generate for actor {actor.name!r} needs a prompt or a user message in its history."
+            f"{command} for actor {actor.name!r} needs a prompt or a user message in its history."
         )
 
     def session_path(self, actor: Actor, path=None, session_id=None) -> pathlib.Path:
