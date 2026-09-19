@@ -389,10 +389,15 @@ interpreter to rewrite the actor's underlying instruction list.
 
 - `scenario/filesystem_worker.json` contains a normal `agent` command with a
   profile, immediate task, relative workspace, narrowed tools, request/tool
-  limits, final-output store key, and trace-store key.
+  limits, final-output store key, and trace-store key. It is the JSON runtime's
+  version of the flow, kept for reference.
 - `main.py` is trusted host code. It selects the provider profile, constructs
   `PydanticAgentExecutor`, injects exactly the same canonical root into the
-  interpreter, and creates the actor without a generation pipeline.
+  interpreter, and creates the actor without a generation pipeline. It drives
+  the flow with the library runtime (`fictive.Runtime.cmd_exec`), passing the
+  same `agent` fields as keyword arguments (`request_limit`, `tool_call_limit`,
+  `store`, `trace_store`), so the executor, workspace containment and trace
+  behavior below are exercised identically either way.
 - The default provider is a deterministic Pydantic AI `FunctionModel`. It reads
   `notes.txt`, writes `summary.txt`, uses no shell, makes no network request,
   and needs no credentials.

@@ -61,6 +61,12 @@ class Actor:
             self.instructions = Actor.normalize_instructions(actor_cfg.instructions)
         elif (not actor_cfg.instructions) and self.source:
             self.instructions = Actor.parse_actor_instructions(self.source)
+        else:
+            # An actor driven by `library_runtime.Runtime` gets its commands
+            # one at a time from host Python code instead of from a JSON
+            # instruction list, so an empty list is its correct starting
+            # state -- not a missing attribute.
+            self.instructions = []
         # Current step of instructions that the actor is at
         self.cur_step = 0
         self.pending_instructions = []

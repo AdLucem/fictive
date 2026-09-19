@@ -139,10 +139,12 @@ helpers and SGLang integration.
 
   - `main.py`
     Creates or accepts the host workspace, constructs the trusted profile and
-    executor, builds pipeline-free actors, executes the interpreter, and prints
-    final output plus changed-path trace data.
+    executor, builds a pipeline-free actor, drives the `system` and `agent`
+    commands through the library runtime (`fictive.Runtime`), and prints final
+    output plus changed-path trace data.
   - `scenario/filesystem_worker.json`
-    Demonstrates all core `agent` fields in scenario JSON.
+    Demonstrates all core `agent` fields in scenario JSON. Kept as the JSON
+    runtime's version of the same flow; `main.py` does not read it.
   - `scenario/filesystem_worker_system.txt`
     Supplies the actor's initial system history.
 
@@ -252,6 +254,25 @@ helpers and SGLang integration.
   `TransformersPipeline` needs it for local inference -- but an API-only
   install can now import either entry module without it.
 
+- `fictive/library_runtime.py`
+  The library runtime: `Runtime` wraps an `Interpreter` so host Python code can
+  issue scene-language commands one at a time with
+  `Runtime.cmd_exec("<command>", **fields)` instead of handing the interpreter
+  a JSON instruction list. Keyword arguments are the command dataclass fields
+  from `fictive/parser/commands.py`, spelled with underscores (`var_name`,
+  `request_limit`, `input_from_actor`), and paths are taken as given rather
+  than resolved against a scenario directory, so pass full paths for prompt
+  files.
+
+  Control flow that `loop` and `cond` express in JSON is ordinary Python here.
+  Control flow *between* actors still goes through the interpreter: a
+  `run-actor` command pushes the callee and makes it the working actor, and the
+  matching `exit` pops it again and fills that `run-actor`'s `store` variable
+  with the callee's last output. Actors built for this runtime are created
+  without `instructions` or `source_file`, so their instruction list is empty.
+
+  Every example under `examples/` is driven this way.
+
 ### Package: `fictive/parser/`
 
 - `fictive/parser/__init__.py`
@@ -267,6 +288,12 @@ helpers and SGLang integration.
   Expression helpers for the scenario language.
 
 ## How The Pieces Fit Together
+
+There are two ways to run a scene. The JSON runtime reads a scenario directory
+and walks each actor's instruction list; the library runtime
+(`fictive/library_runtime.py`) lets host Python code issue the same commands
+directly. The examples under `examples/` use the library runtime; the scenario
+JSON they ship alongside it is the same flow written for the JSON runtime.
 
 The ordinary `generate` runtime flow is:
 
@@ -286,6 +313,22 @@ At runtime, each actor advances through a list of instruction objects. The
 interpreter evaluates the current command, updates actor history or shared
 store state, and hands control across actors through the call stack when a
 `run-actor` instruction executes.
+
+The library-runtime flow replaces steps 1, 4 and 6:
+
+1. Build a pipeline as above.
+2. Build `Actor` instances directly, with neither `instructions` nor
+   `source_file`. No `schema.json` or per-actor JSON is needed; prompt files
+   are referenced by full path.
+3. Pass the actors into `Interpreter`, wrap it in
+   `Runtime(interpreter, start_actor_name=...)`, and issue commands with
+   `runtime.cmd_exec(...)`. Loops and conditions are written in Python;
+   `run-actor`/`exit` still move control between actors through the
+   interpreter's call stack.
+
+`Runtime(..., mode="debug")` stops for a debugger command before each
+`cmd_exec` step, using the same command set `fictive/debugger.py` exposes for
+the JSON runtime.
 
 The concrete LLM backend classes are provided by
 `llm-utils/llm_utils/pipelines.py`. The `fictive` package uses those shared

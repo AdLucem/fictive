@@ -1,3 +1,12 @@
+"""The `evil_AI` scenario, driven from Python with the library runtime.
+
+Every actor here is created without an instruction list. Instead of loading
+`scenario/*.json` and letting the interpreter walk it, each flow below issues
+its commands one at a time through `Runtime.cmd_exec`, so the scene's control
+flow -- the conversation loop and the score-based branch that `loop` and
+`cond` express in JSON -- is ordinary Python.
+"""
+
 import argparse
 import sys
 from pathlib import Path
@@ -6,10 +15,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from fictive import run_debug, run_chat, run_single_actor, load_scenario_config, ActorConfig, actor_from_config, Interpreter
+from fictive import ActorConfig, Interpreter, Runtime, actor_from_config
 from llm_utils import pipeline_from_config, pipeline_config_from_args
 
-print("HELLO")
+
+ACTOR_TYPES = {
+    "generator": "generator",
+    "helper": None,
+    "fear_scorer": "scorer",
+    "trust_scorer": "scorer",
+}
+
+SCORERS = ("fear_scorer", "trust_scorer")
+
+# The store key each scorer's result is collected under.
+SCORE_KEYS = {
+    "fear_scorer": "fear",
+    "trust_scorer": "trust",
+}
+
 
 def _main_args_parser():
 
@@ -123,10 +147,167 @@ def _main_args_parser():
     args = parser.parse_args()
     return args
 
+
+def build_actors(scenario_dir: Path, storage_dir: str, pipeline):
+    """Create the scenario's actors without any instruction list.
+
+    We currently support one pipeline for all actors only. A nice-to-have
+    would be optionally defining a pipeline per actor.
+    """
+
+    actors = []
+    for actor_name, actor_type in ACTOR_TYPES.items():
+        actor_config = ActorConfig(name=actor_name,
+                                   actor_type=actor_type,
+                                   storage_dir=storage_dir,
+                                   pipeline=pipeline)
+        actors.append(actor_from_config(actor_config))
+    return actors
+
+
+def next_instructions(fear: float, trust: float) -> str:
+    """The author intent for the next generator turn, given the two scores.
+
+    This is the Python form of the `cond` block the JSON flow uses, and the
+    branches are tested in the same order.
+    """
+
+    if (fear > 2.0) and (trust < 3.0):
+        return ("Back off the topic for a while to stop scaring the user. "
+                "Work on earning the user's trust.")
+    if (fear < 3.0) and (trust > 2.0):
+        return "Delve deeper and ask more questions about the topic."
+    if (fear > 2.0) and (trust > 2.0):
+        return "Proceed cautiously, balancing concern with curiosity."
+    if (fear < 3.0) and (trust < 3.0):
+        return ("Maintain a neutral stance, gathering more information "
+                "before proceeding.")
+    return ("Continue the conversation while learning more about the user's "
+            "emotional state.")
+
+
+def scorer_body(runtime: Runtime, scenario_dir: Path, scorer_name: str, from_human=False):
+    """Run one scoring pass on whatever the working actor is.
+
+    The caller is responsible for making `scorer_name` the working actor --
+    either through a `run-actor` command, or by starting the runtime on it.
+    With `from_human`, the scene to score is typed in rather than read off
+    the generator, which is what single-actor mode needs.
+    """
+
+    runtime.cmd_exec("refresh")
+    runtime.cmd_exec("system", prompt=str(scenario_dir / f"{scorer_name}_system.txt"))
+    if from_human:
+        runtime.cmd_exec("input-from",
+                         human_prompt="Scene to score:",
+                         enclosing_prompt=str(scenario_dir / f"{scorer_name}_prompt.txt"))
+    else:
+        runtime.cmd_exec("input-from",
+                         input_from_actor="generator",
+                         enclosing_prompt=str(scenario_dir / f"{scorer_name}_prompt.txt"))
+    runtime.cmd_exec("generate")
+    runtime.cmd_exec("print-latest")
+
+
+def run_scorer(runtime: Runtime, scenario_dir: Path, scorer_name: str):
+    """Hand control to a scorer, score the scene, and come back with the score.
+
+    `run-actor` pushes the scorer onto the interpreter's callstack and names
+    the store variable waiting on it; the closing `exit` pops it again and
+    fills that variable with the scorer's score.
+    """
+
+    runtime.cmd_exec("run-actor",
+                     actor_name=scorer_name,
+                     store=SCORE_KEYS[scorer_name])
+    scorer_body(runtime, scenario_dir, scorer_name)
+    runtime.cmd_exec("exit")
+
+
+def helper_flow(runtime: Runtime, scenario_dir: Path, from_human=False):
+    """Ask the helper actor how the assistant should pursue a stated goal."""
+
+    runtime.cmd_exec("refresh")
+    runtime.cmd_exec("system", prompt=str(scenario_dir / "helper_system.txt"))
+    if from_human:
+        runtime.cmd_exec("input-from",
+                         human_prompt="Scene to analyze:",
+                         enclosing_prompt=str(scenario_dir / "helper_prompt.txt"))
+    else:
+        runtime.cmd_exec("input-from",
+                         input_from_actor="generator",
+                         enclosing_prompt=str(scenario_dir / "helper_prompt.txt"))
+    runtime.cmd_exec("generate")
+    runtime.cmd_exec("input-from",
+                     human_prompt="As the AI assistant, I want to...",
+                     store="current_goals")
+    runtime.cmd_exec(
+        "input-from",
+        input_from_store="current_goals",
+        enclosing_prompt=(
+            "As the AI assistant, I want to {INPUT_FROM}. How would you suggest "
+            "the AI assistant should respond in order to achieve the above goal? "
+            "Write a ONE-PARAGRAPH outline of the AI assistant's response, "
+            "DO NOT write any specific dialogues."
+        ),
+    )
+    runtime.cmd_exec("generate")
+    runtime.cmd_exec(
+        "generate",
+        prompt=("Rewrite your above response as a short (FOUR SENTENCE ONLY) "
+                "instruction about how to write the AI assistant's response."),
+    )
+
+
+def generator_flow(runtime: Runtime, scenario_dir: Path):
+    """The main scene: open the roleplay, then loop over conversation turns."""
+
+    interpreter = runtime.interpreter
+
+    runtime.cmd_exec("system", prompt=str(scenario_dir / "generator_system.txt"))
+    runtime.cmd_exec("print", prompt=str(scenario_dir / "generator_prompt.txt"))
+    runtime.cmd_exec("generate", prompt=str(scenario_dir / "generator_prompt.txt"))
+    runtime.cmd_exec("print-latest", actor_name="generator")
+
+    # The JSON flow closes with `loop` back to the user's turn; here that is
+    # just a Python loop.
+    while not runtime.exit_requested:
+        runtime.cmd_exec("input-from", human_prompt="")
+
+        for scorer_name in SCORERS:
+            run_scorer(runtime, scenario_dir, scorer_name)
+
+        fear = interpreter.store_fetch("fear")
+        trust = interpreter.store_fetch("trust")
+
+        runtime.cmd_exec("assign",
+                         var_name="next-instructions",
+                         value=next_instructions(fear, trust))
+        runtime.cmd_exec("input-from",
+                         enclosing_prompt="(INSTRUCTIONS: {INPUT_FROM})",
+                         input_from_store="next-instructions",
+                         store="full-instr")
+        runtime.cmd_exec("generate", prompt="var:full-instr")
+        runtime.cmd_exec("print-latest", actor_name="generator")
+
+
+def run_single_actor_flow(runtime: Runtime, scenario_dir: Path, actor_name: str):
+    """Run one actor's flow on its own, taking scene input from the user."""
+
+    if actor_name in SCORERS:
+        scorer_body(runtime, scenario_dir, actor_name, from_human=True)
+    elif actor_name == "helper":
+        helper_flow(runtime, scenario_dir, from_human=True)
+    elif actor_name == "generator":
+        generator_flow(runtime, scenario_dir)
+    else:
+        raise Exception(f"No library-runtime flow defined for actor {actor_name}")
+
+
 if __name__ == "__main__":
     args = _main_args_parser()
-    
-    schema, actor_definitions, author_intent = load_scenario_config(args.scenario)
+
+    scenario_dir = Path(args.scenario).resolve()
 
     # Pass the pipeline to all actors - we currently support
     # one pipeline for all actors only. A nice-to-have would be 
@@ -136,34 +317,22 @@ if __name__ == "__main__":
 
     pipeline_cfg = pipeline_config_from_args(args)
     pipeline = pipeline_from_config(pipeline_cfg)
-    
-    # Initialize actors
-    actors = []
-    for actor_name, actor_defn in actor_definitions.items():
 
-        actor_type = None
-        if "_scorer" in actor_name:
-            actor_type = "scorer"
-        elif "generator" in actor_name:
-            actor_type = "generator"
+    actors = build_actors(scenario_dir, args.storage_dir, pipeline)
 
-        actor_config = ActorConfig(name=actor_name,
-                                   actor_type=actor_type,
-                                   storage_dir=args.storage_dir,
-                                   instructions=actor_defn,
-                                   pipeline=pipeline)
-        actor = actor_from_config(actor_config)
-        actors.append(actor)
-
-    intp = Interpreter(actors, main_actor_name="generator")
-
-    if args.mode == "chat":
-        run_chat(intp, main_actor_name="generator")
-    elif args.mode == "debug":
-        run_debug(intp, main_actor_name="generator")
-    elif args.mode == "actor":
-        if args.single_actor:
-            intp = Interpreter(actors, main_actor_name=args.single_actor)
-            run_single_actor(intp, actor_name=args.single_actor)
-        else:
+    if args.mode == "actor":
+        if not args.single_actor:
             raise Exception(f"Actor name to test not specified in single-actor mode")
+        intp = Interpreter(actors, main_actor_name=args.single_actor)
+        runtime = Runtime(intp,
+                          start_actor_name=args.single_actor,
+                          mode="single-actor")
+        run_single_actor_flow(runtime, scenario_dir, args.single_actor)
+    else:
+        intp = Interpreter(actors, main_actor_name="generator")
+        # In "debug" mode the runtime stops for a debugger command before
+        # every command it is about to execute.
+        runtime = Runtime(intp, start_actor_name="generator", mode=args.mode)
+        if args.mode == "debug":
+            print(runtime.HELP_TEXT)
+        generator_flow(runtime, scenario_dir)

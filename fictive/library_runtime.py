@@ -52,10 +52,17 @@ class Runtime:
         
         self.interpreter = interpreter
         self.start_actor_name = start_actor_name
+        # The debug commands below talk about a "main" actor; for a library
+        # flow that is the actor the runtime started on.
+        self.main_actor_name = start_actor_name
         self.working_actor = interpreter.actor_fetch(start_actor_name)
         self.mode = mode
 
         self.exit_requested = False
+
+    @property
+    def main_actor(self) -> Actor:
+        return self.interpreter.actor_fetch(self.main_actor_name)
 
     def cmd_exec(self, command: str, **kwargs):
 
@@ -77,9 +84,39 @@ class Runtime:
                 cmd=cmd,
                 actor_name=self.working_actor.name
         )
-            
+
+        if cmd.name == "exit":
+            # `Interpreter.exec_current` unwinds the callstack after an `exit`
+            # rather than leaving it to `exec`. A library flow never goes
+            # through `exec_current`, so do the same unwinding here: it pops
+            # the actor a previous `run-actor` pushed and fills that command's
+            # `store` variable with the finished actor's last output.
+            self.unwind_working_actor()
+
         acting_actor_name = self.working_actor.name
         return self.interpreter, acting_actor_name
+
+    def unwind_working_actor(self) -> Actor:
+        """Return control from the working actor to the one that called it.
+
+        Mirrors the unwinding half of `Interpreter.exec_current`. When the
+        callstack empties, the finished actor stays as the working actor and
+        `exit_requested` is set, so a driving loop can tell that the flow is
+        over.
+        """
+        finished_actor = self.working_actor
+        finished_actor.clear_pending_instructions()
+        finished_actor.return_after_pending = False
+        self.interpreter.unwind_actor(finished_actor.name)
+
+        if self.interpreter.callstack:
+            self.working_actor = self.interpreter.actor_fetch(
+                self.interpreter.callstack[-1]
+            )
+        else:
+            self.exit_requested = True
+
+        return self.working_actor
 
     def handle_command(self, raw_command: str) -> list[str]:
         raw_command = raw_command.strip()
@@ -126,7 +163,7 @@ class Runtime:
                 return [self.format_latest(actor_name, n)]
             if command == "instr":
                 actor = self.actor_or_main(parts[1] if len(parts) >= 2 else None)
-                return [str(actor.get_current_instr())]
+                return [self.describe_current_instr(actor)]
 
             return [f"Unknown command: {raw_command}", self.HELP_TEXT]
         except Exception:
@@ -185,9 +222,21 @@ class Runtime:
     def format_actor_summary(self) -> str:
         lines = []
         for name, actor in self.interpreter.actors.items():
-            current_instr = actor.get_current_instr()
+            current_instr = self.describe_current_instr(actor)
             lines.append(f"{name}: step={actor.cur_step} current_instr={current_instr}")
         return "\n".join(lines)
+
+    @staticmethod
+    def describe_current_instr(actor: Actor) -> str:
+        """Describe an actor's current instruction, tolerating library actors.
+
+        An actor driven by `cmd_exec` has no instruction list of its own, so
+        asking it for a current instruction is not an error -- there simply
+        isn't one.
+        """
+        if (not actor.instructions) and (not actor.has_pending_instruction()):
+            return "<driven by the library runtime>"
+        return str(actor.get_current_instr())
 
     def format_history(self, actor_name: str) -> str:
         actor = self.interpreter.actor_fetch(actor_name)
