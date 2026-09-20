@@ -4,6 +4,12 @@ This example runs Fictive's `agent` instruction through the standalone agent
 harness. By default it uses Pydantic AI's deterministic `FunctionModel`, makes
 no network requests, and needs no credentials.
 
+The flow is driven by the library runtime: `main.py` builds the
+`filesystem_worker` actor with no instruction list and issues its `system` and
+`agent` commands from Python through `fictive.Runtime.cmd_exec`. The equivalent
+JSON definition is kept in `scenario/filesystem_worker.json` as a reference for
+the JSON runtime; the demo no longer reads it.
+
 From the `fictive/` repository root:
 
 ```bash
