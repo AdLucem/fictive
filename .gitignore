@@ -1,5 +1,10 @@
+.kilo
+.claude
+.data
+.local
+.vscode
+
 local/
-.local/
 .chatlogs
 
 # Byte-compiled / optimized / DLL files
