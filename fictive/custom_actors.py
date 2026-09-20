@@ -82,6 +82,15 @@ class Scorer(Actor):
     def get_latest_output(self, n=0):
         return self.scores[-(n + 1)]
 
+    def state_dict(self):
+        state = super().state_dict()
+        state["scores"] = list(self.scores)
+        return state
+
+    def load_state_dict(self, state):
+        super().load_state_dict(state)
+        self.scores = list(state.get("scores", []))
+
     def refresh(self):
         old_history = super().refresh()
         self.scores = []

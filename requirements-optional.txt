@@ -1,3 +1,12 @@
 # Optional serving/runtime backends
 vllm
 sglang
+# Optional AWS backends: Bedrock Knowledge Bases for `rag-generate`, the Bedrock
+# pipeline, and the AgentCore gateway for `web-search-and-generate`
+boto3
+# Profiles using the `login_session` credential provider need the CRT extra;
+# without it credential resolution fails in a way that does not look like a
+# missing dependency
+botocore[crt]
+llama-index-core>=0.14.24,<0.15
+llama-index-embeddings-huggingface>=0.8.0,<0.9

@@ -10,6 +10,7 @@ from copy import deepcopy
 from llm_utils import LLMPipeline, PipelineConfig, pipeline_from_config
 from .data_structures import History, Scene, Store 
 from .parser.commands import CommandObj, parse_command_dict
+from .session import command_to_dict
 
 # List of commands that automatically return false when queried for `is_last_instr`
 LOOPING_INSTRUCTIONS = ["loop", "cond"]
@@ -347,3 +348,43 @@ class Actor:
                               "content": old_history[0]["content"]})
 
         return old_history
+
+    def state_dict(self) -> dict:
+        """The actor's resumable runtime state, as JSON-ready values.
+
+        Instructions and the pipeline are not included: they come from the
+        scenario. A subclass with runtime state of its own (such as
+        `Scorer.scores`) extends both this and `load_state_dict`.
+        """
+        return {
+            "actor_class": type(self).__name__,
+            "history": deepcopy(self.history._h),
+            "system_prompt": deepcopy(self.system_prompt),
+            "cur_step": self.cur_step,
+            "pending_instructions": [command_to_dict(cmd) for cmd in self.pending_instructions],
+            "return_after_pending": self.return_after_pending,
+        }
+
+    def load_state_dict(self, state: dict):
+        """Replace this actor's runtime state with one produced by `state_dict`."""
+
+        saved_class = state.get("actor_class")
+        if saved_class and saved_class != type(self).__name__:
+            logging.warning(
+                f"Loading state saved by a {saved_class} into actor {self.name!r}, a {type(self).__name__}."
+            )
+
+        # `exec_LOOP` leaves -1 for `increment_instr` to turn into 0.
+        cur_step = state["cur_step"]
+        n_instructions = len(getattr(self, "instructions", None) or [])
+        if not (-1 <= cur_step < max(n_instructions, 1)):
+            raise ValueError(
+                f"Saved step {cur_step} for actor {self.name!r} is outside its {n_instructions} instructions."
+            )
+        pending = [parse_command_dict(cmd) for cmd in state["pending_instructions"]]
+
+        self.history = History(names=self.history.names, init_list=deepcopy(state["history"]))
+        self.system_prompt = deepcopy(state["system_prompt"])
+        self.cur_step = cur_step
+        self.pending_instructions = pending
+        self.return_after_pending = bool(state["return_after_pending"])
