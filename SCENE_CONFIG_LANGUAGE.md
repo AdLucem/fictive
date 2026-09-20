@@ -227,3 +227,213 @@ Params:
 ### Command: `exit`
 
 Exits the current actor and returns execution to the previous actor in the stack. Takes no commands.
+
+### Command: `save-conversation`
+
+Also accepted as `save_conversation`. Saves the whole interpreter session to
+one JSON file:
+
+- every actor's full, unmerged history and system prompt;
+- each actor's instruction step and any pending `cond` block;
+- the shared store, the deferred `run-actor` captures, and the callstack;
+- the Bedrock session id each actor's `rag-generate` calls are using.
+
+Instructions and pipelines are not saved. A session loads only into an
+interpreter built from the same scenario, with exactly the same actor names.
+
+When this runs as a scenario step, the file is written once the step has
+finished. Loading it therefore resumes at the instruction after the
+`save-conversation`, not on it.
+
+```
+Params:
+
+- path: Optional[str | Path] = "File to write. A relative path is resolved against the acting actor's storage directory. If omitted, writes `conversations/<session-id>.json` there, or into the interpreter's `conversations_dir` when the host set one."
+- session-id: Optional[str] = "Session id recorded in the file and used for the default file name. Defaults to the interpreter's session id, so repeated saves during one run update one file. Letters, digits, `.`, `_` and `-` only."
+- store: Optional[str] = "Name of a store variable to receive the path of the written file."
+```
+
+Every store value must be JSON-serializable. Otherwise the save raises
+`TypeError` naming the variable, rather than writing a value that would load
+back as something else.
+
+Example:
+
+```json
+{
+  "cmd": "save-conversation",
+  "store": "session-file"
+}
+```
+
+From Python, `Interpreter.save_session(path=None, session_id=None)` and
+`Runtime.save_session(...)` do the same thing immediately, resolving paths
+against the main actor's storage directory.
+
+### Command: `load-conversation`
+
+Also accepted as `load_conversation`. Replaces the whole interpreter session
+with one written by `save-conversation`.
+
+```
+Params: (exactly one of)
+
+- path: Optional[str | Path] = "Session file to read, resolved like `save-conversation`'s path."
+- session-id: Optional[str] = "Load `<session-id>.json` from the interpreter's `conversations_dir`, else from `conversations/` in the acting actor's storage directory."
+```
+
+After a load, execution continues from the restored callstack and instruction
+steps, not from the instruction after `load-conversation`. Later saves default
+to the loaded session id. If the file's actor names do not match the
+interpreter's, or an actor rejects its saved state, the load raises and leaves
+the session as it was.
+
+Example:
+
+```json
+{
+  "cmd": "load-conversation",
+  "session-id": "20260915T101500Z-3fa9c2d1"
+}
+```
+
+From Python, use `Interpreter.load_session(path=None, session_id=None)` or
+`Runtime.load_session(...)`.
+
+### Command: `rag-generate`
+
+Also accepted as `rag_generate`. Retrieves passages from relevant past
+conversations and generates the acting actor's next message from them.
+
+The backend is chosen when the command runs. A host can hand the interpreter a
+backend of its own, `Interpreter(rag_backend=...)`, which is used whenever the
+command names no `backend`. Otherwise:
+
+- **`bedrock`** is used when `KNOWLEDGE_BASE_ID` is set. It queries that
+  Amazon Bedrock Knowledge Base and generates with Bedrock's
+  `RetrieveAndGenerate`, using `BEDROCK_MODEL_ARN` or `model-arn`. Region and
+  credentials come from boto3's standard chain (`AWS_REGION`, `AWS_PROFILE`,
+  ...). fictive only queries the Knowledge Base; loading conversations into its
+  data source and syncing it happens outside fictive. Requires
+  `pip install 'fictive[rag-bedrock]'`. A host that builds
+  `BedrockKnowledgeBaseBackend(native_generation=False)` gets retrieval only,
+  and the actor's pipeline generates, as with the local backend.
+- **`local`** is used otherwise. It searches a LlamaIndex vector index over the
+  session files in the conversations directory (`Interpreter(conversations_dir=...)`,
+  else `conversations/` under the acting actor's storage directory), plus any
+  reference documents a host-built backend adds,
+  then generates with the actor's own pipeline. The index lives in
+  `conversations/.rag_index/` and is updated before every retrieval, so a saved
+  session is searchable from the next `rag-generate` on. The current session is
+  never retrieved from. Embeddings use the Hugging Face model named by
+  `FICTIVE_RAG_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`), downloaded on
+  first use. Requires `pip install 'fictive[rag-local]'`.
+
+```
+Params:
+
+- prompt: Optional[str | Path | dict] = "Literal text, a prompt file, a message object, or `var:<store-name>`, appended to history as a user message like `generate`'s prompt. It is also the query, unless `query` is given."
+- query: Optional[str | dict] = "What to retrieve on: literal text, a message object, or `var:<store-name>`, never read as a file path. Defaults to the prompt, else the latest user message in history."
+- top-k: Optional[int] = 4 ::= "Maximum number of passages to retrieve."
+- actor-filter: Optional[str] = "Retrieve only from this actor's past transcripts. For Bedrock this is an `equals` metadata filter on `actor`, so the Knowledge Base's documents must carry that metadata."
+- enclosing-prompt: Optional[str | Path] = "Local backend only. Wraps the passages (`{CONTEXT}`, required) and the conversation's last user message (`{INPUT}`, or appended after the prompt when absent) for the model. A default is built in."
+- backend: Optional[str] = "`bedrock` or `local`, overriding the environment's choice."
+- model-arn: Optional[str] = "Bedrock only. Model or inference profile ARN, overriding `BEDROCK_MODEL_ARN`."
+- store: Optional[str] = "Name of a store variable to receive the generated text."
+- sources-store: Optional[str] = "Name of a store variable to receive the passages, as a list of `{text, score, source, metadata}`."
+- fallback-on-retrieval-error: Optional[bool] = false ::= "When retrieval raises -- an index that cannot load, a Knowledge Base that cannot be reached -- log a warning and generate without retrieved context instead of failing. Applies to backends that only retrieve."
+```
+
+Both backends append exactly one assistant message to the actor's history.
+Retrieved passages are never stored in history. The local backend adds them only
+to the copy of the conversation it sends to the pipeline, so history does not
+grow with retrieved text on every turn. When nothing is retrieved, that copy is
+sent unwrapped, exactly as `generate` would send it.
+
+The backends differ in what the model sees:
+
+- **Local:** the model sees the actor's whole conversation, and the output
+  streams through `Interpreter.on_generate_delta` like `generate`.
+- **Bedrock:** the model sees the query, the actor's system prompt (sent as the
+  generation prompt template) and Bedrock's own session for that actor. It does
+  not see the rest of the actor's history, and the output does not stream.
+
+Example:
+
+```json
+{
+  "cmd": "rag-generate",
+  "prompt": "var:teacher-question",
+  "top-k": 5,
+  "actor-filter": "generator",
+  "store": "answer",
+  "sources-store": "answer-sources"
+}
+```
+
+### Command: `web-search-and-generate`
+
+Also accepted as `web_search_and_generate` and `webSearchAndGenerate`. Searches
+the web and generates the acting actor's next message from the results.
+
+Command names resolve in any separator style or case, so this is a general rule
+rather than a special case for this command: `rag_generate`, `ragGenerate`,
+`print-latest` and `printLatest` all resolve too. The canonical name, the one
+saved sessions record, stays the hyphenated spelling.
+
+The backend is chosen when the command runs. A host can hand the interpreter a
+backend of its own, `Interpreter(web_search_backend=...)`, which is used
+whenever the command names no `backend`. Otherwise:
+
+- **`agentcore`** is the default and only built-in backend. It calls an Amazon
+  Bedrock AgentCore Gateway fronting the AWS-managed Web Search Tool connector,
+  over MCP, signing each request with SigV4 for the `bedrock-agentcore`
+  service. The gateway URL comes from `WEBSEARCH_GATEWAY_URL`, or from the
+  `GatewayUrl` output of the CloudFormation stack named by
+  `WEBSEARCH_GATEWAY_STACK`. Region and credentials come from
+  `WEBSEARCH_REGION` and `WEBSEARCH_PROFILE`, else boto3's standard chain
+  (`AWS_REGION`, `AWS_PROFILE`, ...). Requires
+  `pip install 'fictive[web-search]'`. Creating and deploying the gateway
+  happens outside fictive.
+
+Bedrock has no server-side `web_search` tool: it serves Anthropic's client
+tools, such as bash and the text editor, but not the server tools that run on
+Anthropic's own infrastructure. The gateway is what stands in for one. Note
+that this command runs the search itself and puts the results in the prompt; it
+does not hand the model a tool to call.
+
+```
+Params:
+
+- prompt: Optional[str | Path | dict] = "Literal text, a prompt file, a message object, or `var:<store-name>`, appended to history as a user message like `generate`'s prompt. It is also the search query, unless `query` is given."
+- query: Optional[str | dict] = "What to search for: literal text, a message object, or `var:<store-name>`, never read as a file path. Defaults to the prompt, else the latest user message in history. Truncated to 200 characters, the connector's limit, with a warning."
+- max-results: Optional[int] = 5 ::= "How many results to ask for, between 1 and 25."
+- enclosing-prompt: Optional[str | Path] = "Wraps the results (`{CONTEXT}`, required) and the conversation's last user message (`{INPUT}`, or appended after the prompt when absent) for the model. A default is built in."
+- backend: Optional[str] = "`agentcore`, overriding the environment's choice."
+- filters: Optional[dict] = "Passed to the connector as its `filters` argument, for per-request domain and published-date filtering."
+- store: Optional[str] = "Name of a store variable to receive the generated text."
+- sources-store: Optional[str] = "Name of a store variable to receive the results, as a list of `{text, score, source, metadata}`, where `source` is the result URL."
+- fallback-on-search-error: Optional[bool] = false ::= "When the search raises -- an unreachable gateway, a missing dependency -- log a warning and generate without web results instead of failing."
+```
+
+Exactly one assistant message is appended to the actor's history. Results are
+never stored in history: they are added only to the copy of the conversation
+sent to the pipeline, so history does not grow with search text on every turn.
+The prompt joins history only once the search has returned, so a failed search
+leaves the conversation as it was. When nothing is found, the copy is sent
+unwrapped, exactly as `generate` would send it. The model sees the actor's whole
+conversation, and the output streams through `Interpreter.on_generate_delta`
+like `generate`.
+
+Example:
+
+```json
+{
+  "cmd": "web-search-and-generate",
+  "prompt": "var:teacher-question",
+  "max-results": 5,
+  "store": "answer",
+  "sources-store": "answer-sources",
+  "fallback-on-search-error": true
+}
+```
