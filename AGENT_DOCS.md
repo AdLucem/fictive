@@ -226,6 +226,14 @@ Its flow is:
    - copy deferred outputs from `waiting_store` into `store`
 6. Return the actor now at the top of the stack, or `-1` if execution ended.
 
+`exec_current` itself is a wrapper around `_exec_current_step`, which does the
+steps above, for the two session commands. A `save-conversation` executed in
+the step is queued and written after step 4-5's bookkeeping, so the file
+resumes on the next instruction. A `load-conversation` sets `_state_restored`,
+and the step then returns the restored top of the callstack without advancing
+or unwinding anything. Outside `exec_current` (`Runtime.cmd_exec`) a save
+writes immediately.
+
 This means the interpreter is effectively a tiny command VM with:
 
 - per-actor program counters
@@ -286,6 +294,41 @@ The main command handlers are:
 - `cond`
   Evaluates ordered branch conditions against the shared store and queues the
   first matching branch's nested commands into `pending_instructions`.
+
+- `save-conversation`
+  Writes the whole session (see "Sessions and RAG" below) to `path`, or by
+  default to `conversations/<session-id>.json` under the acting actor's
+  storage directory. It optionally stores the path. Inside `exec_current` the
+  write waits until the step's bookkeeping is done, so the file resumes after
+  this command.
+
+- `load-conversation`
+  Replaces the whole session with a saved one, taking a `path` or a
+  `session-id`. `exec_current` then skips its step bookkeeping, because the
+  step pointers and callstack it would advance were just replaced.
+
+- `rag-generate`
+  Retrieves passages from past conversations and appends one assistant
+  message. With `KNOWLEDGE_BASE_ID` set, Bedrock's `RetrieveAndGenerate` does
+  both retrieval and generation. Otherwise a local LlamaIndex index over saved
+  sessions retrieves, and the actor's pipeline generates. In that case the
+  passages are wrapped into the pipeline's copy of the last user message only,
+  never into history. `store` receives the text and `sources-store` the
+  passages.
+
+- `web-search-and-generate`
+  Searches the web through a `WebSearchBackend` and appends one assistant
+  message generated from the results. The default `agentcore` backend speaks
+  MCP to a Bedrock AgentCore Gateway fronting the AWS-managed Web Search
+  connector, SigV4-signed for `bedrock-agentcore`; Bedrock has no server-side
+  `web_search` tool, which is why the gateway exists. Results are wrapped into
+  the pipeline's copy of the last user message only, never into history, the
+  same mechanism the retrieval-only `rag-generate` path uses. `store` receives
+  the text and `sources-store` the results. `fallback-on-search-error` turns an
+  unreachable gateway into a warning and a search-free reply. Also accepted as
+  `webSearchAndGenerate`: `Cmd._missing_` resolves any separator style or case,
+  so `ragGenerate` and `printLatest` resolve too, while the canonical
+  hyphenated name is what `exec_map` and saved sessions use.
 
 ### 9. Condition Evaluation
 
@@ -365,6 +408,13 @@ A useful way to think about the architecture is:
 - `custom_actors.py`
   Specializes how some actors interpret or expose outputs.
 
+- `session.py`
+  Serializes and restores whole interpreter sessions.
+
+- `rag/`
+  Retrieval backends for `rag-generate`: Bedrock Knowledge Bases, or a local
+  LlamaIndex index over saved sessions.
+
 In short:
 
 scenario JSON -> parsed command objects -> actor instruction lists ->
@@ -382,6 +432,57 @@ calls when needed
 The missing piece was only a way to insert a temporary block of commands into
 execution. `pending_instructions` provides that mechanism without forcing the
 interpreter to rewrite the actor's underlying instruction list.
+
+## Sessions and RAG
+
+`fictive/session.py` owns the session file format (`fictive-session`, version
+1):
+
+- A file holds `callstack`, `waiting_store`, `store`, `rag_sessions`, and per
+  actor `Actor.state_dict()`: unmerged `history`, `system_prompt`,
+  `cur_step`, `pending_instructions` as command dicts, and
+  `return_after_pending`, plus subclass extras such as `Scorer.scores`.
+- It holds no instructions or pipelines. `restore_interpreter` demands
+  identical actor names and restores all or nothing.
+- Store values must be JSON-serializable. There is no `default=str`, so a
+  value never silently loads back as a string.
+- `command_to_dict` inverts `parse_command_dict`, including `cond`'s nested
+  commands.
+- The default path is `<storage_dir>/conversations/<session_id>.json`.
+  `Interpreter.session_id` is generated per interpreter and replaced by
+  `load_session`, so repeated saves update one file.
+
+`fictive/rag/` holds the `rag-generate` backends. Both are imported lazily, so
+`import fictive` never pulls in `boto3` or `llama_index`. The package reads
+`os.environ` only; loading `.env` stays an entry point's job.
+
+- `backend_kind(override)`: the command's `backend` if given, else `bedrock`
+  when `KNOWLEDGE_BASE_ID` is set, else `local`.
+- `Interpreter(rag_backend=..., conversations_dir=...)`: a host-supplied backend
+  wins whenever a command names no `backend`, and `conversations_dir` replaces
+  `<storage_dir>/conversations` for session files and the local index
+  (`conversations_root`). `rag-generate`'s `query` (literal text, a message
+  dict, or `var:`, never a path) and `fallback-on-retrieval-error` are what a
+  host builds on; with nothing retrieved, the pipeline gets the conversation
+  unwrapped.
+- `BedrockKnowledgeBaseBackend` (`generates_natively = True`): one
+  `RetrieveAndGenerate` call with `KNOWLEDGE_BASE_ID`, `BEDROCK_MODEL_ARN` or
+  `model-arn`, `numberOfResults = top-k`, an `actor` equals-filter when
+  `actor-filter` is set, the actor's system prompt as `textPromptTemplate`
+  (with `$search_results$`, `$output_format_instructions$` and `$query$`),
+  and the actor's saved `sessionId`. Citations become passages. It does not
+  see the actor's history and does not stream. Built with
+  `native_generation=False` it only retrieves, and the actor's pipeline
+  generates, as for the local backend.
+- `LlamaIndexConversationBackend` (`generates_natively = False`): one document
+  per (session file, actor) transcript, with id `"<session_id>:<actor>"`.
+  `document_paths` adds one document per reference file, `actors` limits which
+  transcripts are indexed, and `transcript_renderer` replaces
+  `render_transcript`, and `max_reference_passages` caps how many results
+  come from reference documents. `sync()` refreshes changed documents and deletes
+  vanished ones in `<conversations dir>/.rag_index/` before each retrieval. It uses Hugging Face
+  embeddings (`FICTIVE_RAG_EMBED_MODEL`), and a `session_id != current`
+  metadata filter keeps the running session out.
 
 ## Agent Example and Operator Configuration
 

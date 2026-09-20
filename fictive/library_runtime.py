@@ -139,6 +139,12 @@ class Runtime:
         self.main_actor = interpreter.actor_fetch(start_actor_name)
         self.working_actor = self.main_actor
         self.mode = mode
+        # `handle_command`, `actor_or_main` and `get_exit_message` all read
+        # these, and neither was ever assigned: every `hist`/`actor`/`latest`
+        # with no actor name, and every exit message, raised AttributeError.
+        # Plain attributes, not properties: subclasses assign to them.
+        self.main_actor_name = interpreter.main_actor_name
+        self.main_actor = interpreter.actor_fetch(self.main_actor_name)
 
         self.exit_requested = False
         # Set by `handle_command` when the user asks to let the shown step run.
@@ -231,10 +237,7 @@ class Runtime:
     def cmd_exec(self, command: str, **kwargs):
         """Build one command dataclass and execute it against the working actor.
 
-        In debug mode this blocks at a `debug> ` prompt first. Returns
-        `(interpreter, acting_actor_name)`.
-        """
-        cmd = Cmd(command).map_to_dataclass()(**kwargs)
+        cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 
         if self.mode == "debug":
             self.debug_pause(cmd)
@@ -448,6 +451,17 @@ class Runtime:
                 break
             if self.advance_requested:
                 self.working_actor = self.interpreter.exec_current()
+
+    def save_session(self, path=None, session_id=None):
+        """Save the whole interpreter session; see `Interpreter.save_session`."""
+        return self.interpreter.save_session(path=path, session_id=session_id)
+
+    def load_session(self, path=None, session_id=None) -> str:
+        """Load a saved session and hand control to the top of its callstack."""
+        loaded_id = self.interpreter.load_session(path=path, session_id=session_id)
+        if self.interpreter.callstack:
+            self.working_actor = self.interpreter.actor_fetch(self.interpreter.callstack[-1])
+        return loaded_id
 
     def handle_command(self, raw_command: str) -> list[str]:
         """Run one debugger command and return the lines it wants printed.

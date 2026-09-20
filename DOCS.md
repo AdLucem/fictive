@@ -57,7 +57,14 @@ helpers and SGLang integration.
 - `pyproject.toml`
   Standard Python packaging metadata for the repository. It defines the
   installable project, runtime dependencies, editable-install support, and
-  package discovery for `fictive` and its subpackages.
+  package discovery for `fictive` and its subpackages. The optional extras
+  `rag-local` (LlamaIndex and Hugging Face embeddings) and `rag-bedrock`
+  (boto3) install the two `rag-generate` backends, `bedrock` installs the
+  Bedrock pipeline and `web-search` the AgentCore gateway backend;
+  `requirements-optional.txt` lists the same packages. The AWS extras include
+  `botocore[crt]`, which profiles using the `login_session` credential provider
+  need; without it credential resolution fails in a way that does not look like
+  a missing dependency.
 
 - `__init__.py`
   Compatibility package shim for vendored/submodule usage. If another
@@ -150,7 +157,8 @@ helpers and SGLang integration.
 
 - `fictive/__init__.py`
   Re-exports the main public entry points, including actors, the interpreter,
-  provider-neutral agent contracts, scenario loading helpers, and runtime
+  the RAG backends and their passage/result types, provider-neutral agent
+  contracts, scenario loading helpers, and runtime
   helpers from `run.py`. It also defines the explicit public export list used
   by the repo-root compatibility shim.
 
@@ -179,6 +187,11 @@ helpers and SGLang integration.
   subclass that calls the pipeline directly (e.g. custom actors defined in
   `centaurus/src/`) should use, so streaming support does not need
   reimplementing per subclass.
+  `Actor.state_dict()` / `load_state_dict(state)` capture and restore the
+  resumable runtime state that session files hold: unmerged history, system
+  prompt, `cur_step`, pending instructions, and `return_after_pending`.
+  `load_state_dict` rejects a step outside the actor's instruction list. A
+  subclass with runtime state of its own extends both methods.
 
 - `fictive/custom_actors.py`
   Defines actor subclasses with specialized output behavior, including
@@ -186,6 +199,7 @@ helpers and SGLang integration.
   from configuration. `Scorer.generate` accepts and forwards `on_delta` to
   every `super().generate(...)` call it makes, including its regeneration
   retries, since it calls the pipeline only through the base `Actor.generate`.
+  `Scorer` extends `state_dict` / `load_state_dict` with its `scores`.
 
 - `fictive/data_structures.py`
   Defines the in-memory containers used at runtime:
@@ -231,6 +245,40 @@ helpers and SGLang integration.
   -- an optional argument a router left out, say -- returns `None` instead of
   raising "not in memory store", which is a different and misleading
   complaint.
+  Session commands: `save-conversation` and `load-conversation`, plus
+  `Interpreter.save_session(path=None, session_id=None)` and
+  `load_session(path=None, session_id=None)` for hosts. Paths resolve against
+  the acting actor's storage directory for commands, and the main actor's for
+  the methods. Every interpreter starts with a fresh `session_id`, so
+  repeated saves update one file. `exec_current` is a thin wrapper around
+  `_exec_current_step`: a `save-conversation` executed in the step is written
+  only after the step's bookkeeping, so the file resumes on the next
+  instruction, and a `load-conversation` makes the step skip the bookkeeping
+  it computed for the state that was just replaced.
+  `rag-generate` resolves a backend with `fictive.rag.backend_kind`, cached per
+  `(kind, storage_dir)` in `rag_backends`. A Bedrock backend retrieves and
+  generates, reusing the per-actor `rag_sessions` id. With the local backend,
+  the interpreter wraps the retrieved passages into the pipeline's copy of the
+  last user message and generates through `_run_pipeline`, streaming through
+  `on_generate_delta` like `generate`. The command's prompt joins history
+  only after the backend call succeeds.
+  `Interpreter(rag_backend=..., conversations_dir=...)` lets a host supply the
+  backend, used whenever a command names no `backend`, and one directory for
+  every session file and the local index (`conversations_root`). A
+  `rag-generate` `query` retrieves on something other than the prompt,
+  `fallback-on-retrieval-error` answers without context when retrieval raises,
+  and nothing retrieved sends the conversation unwrapped.
+  `web-search-and-generate` works the same way through
+  `resolve_web_search_backend` and `fictive.websearch.backend_kind`, cached by
+  kind in `web_search_backends`, with `Interpreter(web_search_backend=...)` as
+  the host hook. It always generates with the actor's pipeline: the results are
+  wrapped into the pipeline's copy of the last user message and never stored in
+  history, the prompt joins history only after the search returns, and
+  `fallback-on-search-error` answers without web results when the search
+  raises. Both handlers locate the last user message by index list rather than
+  `max(...)`, which raises when a history holds no user turn at all.
+  `resolve_prompt_path` treats a string too long to be a path as literal text
+  instead of raising `OSError`.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -271,6 +319,126 @@ helpers and SGLang integration.
   install can now import either entry module without it.
 >>>>>>> e1b976bef1c88233bf489f3b44eafeca5a49ac08
 
+- `fictive/library_runtime.py`
+  `Runtime`, for hosts that drive the interpreter one command at a time with
+  `cmd_exec(command, **kwargs)` instead of stepping scenario JSON.
+  `cmd_exec` accepts `_` for `-` in command names. `save_session(...)` and
+  `load_session(...)` delegate to the interpreter; after a load,
+  `working_actor` becomes the top of the restored callstack. `main_actor_name`
+  is taken from the interpreter and `main_actor` is a property, so the debugger
+  commands and `get_exit_message()` that read them resolve.
+
+- `fictive/bedrock_runtime.py`
+  `BedrockRuntime`, a `Runtime` subclass that installs a Bedrock-backed
+  pipeline on the interpreter's actors and exposes every scenario command as a
+  named Python method. `pipeline=` takes a pre-built pipeline, so a host or a
+  test can supply its own and never reach AWS; otherwise it builds a
+  `BedrockPipeline`, which itself makes no network call until first used.
+  `install_pipeline` sets both `actor.pipeline` and `actor.cfg.pipeline`,
+  because `Actor.__init__` prefers `cfg.pipeline` and an actor rebuilt from its
+  config would otherwise lose the backend. Four commands are not `cmd_exec`
+  wrappers, because driving them that way is silently wrong: `exit` performs
+  the unwind itself (`exec_EXIT` is a no-op in the interpreter), `cond` only
+  queues so `drain_pending()` runs what it queued and `evaluate(condition)` is
+  the imperative alternative, and `loop` rewinds a step pointer that nothing
+  increments on this path. Every parameter is a dataclass field name with
+  underscores, since `cmd_exec` bypasses `Cmd.normalize_params`.
+
+- `fictive/session.py`
+  Saves and restores a whole interpreter session as one JSON file
+  (`"format": "fictive-session"`, `"version": 1`).
+  - What a file holds: every actor's `Actor.state_dict()` (unmerged history,
+    system prompt, `cur_step`, pending `cond` block, `return_after_pending`,
+    plus subclass state such as `Scorer.scores`). It also holds the shared
+    store, the waiting store, the callstack, and `Interpreter.rag_sessions`.
+  - What it leaves out: instructions and pipelines, which come from the
+    scenario. `restore_interpreter` requires the file's actor names to equal
+    the interpreter's. It restores all or nothing, putting the previous state
+    back if any actor rejects its saved state.
+  - `command_to_dict` is the inverse of `parse_command_dict`, including the
+    commands nested in `cond` branches, so pending blocks survive a round trip.
+  - `write_session_file` writes atomically and has no `default=str`: a store
+    value that is not JSON-serializable raises `TypeError` naming the variable,
+    rather than loading back as its string form.
+  - Default location: `<storage_dir>/conversations/<session_id>.json`. A session
+    id must be one plain path segment (`validate_session_id`).
+  - `render_transcript` turns a saved history into the plain text the local RAG
+    backend indexes.
+
+- `fictive/rag/`
+  Backends for the `rag-generate` command. Neither backend module is imported
+  until one is built, so importing `fictive` never imports `boto3` or
+  `llama_index`. The package reads `os.environ` but never loads a `.env` file.
+  - `rag/__init__.py`: `RetrievedPassage`, `RagResult`, and the `RagBackend`
+    protocol (`generates_natively`, `retrieve`, `retrieve_and_generate`). Also
+    backend selection: `backend_kind(override)` returns `bedrock` when
+    `KNOWLEDGE_BASE_ID` is set and `local` otherwise, and `build_rag_backend`
+    builds one. It also holds the helpers that format passages into the
+    default enclosing prompt.
+  - `rag/bedrock.py`: `BedrockKnowledgeBaseBackend`, over boto3's
+    `bedrock-agent-runtime` client. `retrieve_and_generate` calls
+    `RetrieveAndGenerate` with `KNOWLEDGE_BASE_ID` and `BEDROCK_MODEL_ARN` (or
+    the command's `model-arn`), passes the actor's system prompt as the
+    generation prompt template, reuses a per-actor `sessionId`, and maps
+    citations to passages. It only queries the Knowledge Base; loading data
+    into it happens outside fictive. `native_generation=False` makes it
+    retrieve-only, through `Retrieve`, with the actor's pipeline generating.
+  - `rag/local.py`: `LlamaIndexConversationBackend`. It holds one LlamaIndex
+    document per (session file, actor) transcript, plus one per
+    host-supplied `document_paths` file, persisted in
+    `<conversations dir>/.rag_index/`. `actors` limits which transcripts are
+    indexed, `transcript_renderer` replaces
+    `fictive.session.render_transcript`, and `max_reference_passages` caps how
+    many results come from reference documents, leaving the rest to
+    conversations. `sync()` runs before every retrieval: it
+    re-embeds changed documents through `refresh_ref_docs` and deletes those
+    whose file is gone. Embeddings come from the Hugging Face model
+    `FICTIVE_RAG_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`). The current
+    session is excluded with a metadata filter.
+
+`fictive/pipelines/` holds model backends that plug into an actor as its
+pipeline. The backend module is imported lazily, so importing `fictive` never
+imports the SDK's Bedrock client.
+
+- `pipelines/__init__.py`: the env-var names, the defaults, and
+  `build_bedrock_pipeline(...)`. `BEDROCK_MODEL_ID` (default
+  `us.anthropic.claude-sonnet-4-6`), `BEDROCK_REGION`, `BEDROCK_PROFILE`,
+  `BEDROCK_MAX_TOKENS` (default 16384) and `BEDROCK_THINKING_BUDGET`.
+- `pipelines/bedrock.py`: `BedrockPipeline`, Claude on Amazon Bedrock through
+  `anthropic.AnthropicBedrock`, shaped like an `llm_utils` pipeline
+  (`model_name`, `generate`, `generate_stream`) without subclassing
+  `LLMPipeline` -- `PipelineConfig` has no field for a region, a profile or an
+  inference profile id. `bedrock_request_messages` splits `role: "system"`
+  history entries into the Messages API's `system` field, drops empty turns,
+  and adds a `Continue.` user turn when a history ends on an assistant message,
+  which current Claude models reject; an actor reaches that shape whenever
+  `input-from` writes only to the store between two `generate`s. Both methods
+  stream, so a long answer does not run into an HTTP timeout. The AWS client is
+  a lazy property, so the class imports and constructs with no credentials. The
+  model id must be an inference profile (`us.anthropic.claude-sonnet-4-6`), not
+  a bare model id, and the geography prefix is region-family specific.
+
+`fictive/websearch/` holds the `web-search-and-generate` backends, imported
+lazily for the same reason.
+
+- `websearch/__init__.py`: the `WebSearchBackend` protocol (`search(query,
+  max_results, filters)`), `backend_kind` / `build_web_search_backend`, the
+  default enclosing prompt, and the connector's limits (200-character queries,
+  1 to 25 results). Results are `fictive.rag.RetrievedPassage`, so this command
+  and `rag-generate` share one result shape, one `sources-store` shape and one
+  context-wrapping path.
+- `websearch/agentcore.py`: `AgentCoreGatewayBackend`, a minimal SigV4-signed
+  MCP client for a Bedrock AgentCore Gateway fronting the AWS-managed Web
+  Search connector. The gateway URL comes from `WEBSEARCH_GATEWAY_URL` or the
+  `GatewayUrl` output of the stack named by `WEBSEARCH_GATEWAY_STACK`; region
+  and credentials from `WEBSEARCH_REGION` / `WEBSEARCH_PROFILE`, else boto3's
+  chain. The endpoint is the gateway URL plus `/mcp`: posting to the bare host
+  answers HTTP 200 with an `UnknownOperationException` body, so `_rpc` also
+  rejects any 200 whose body is not JSON-RPC. `connect()` runs the handshake
+  and discovers the `<target>___WebSearch` tool; `search()` connects on first
+  use, so building a backend does no network I/O. One instance holds an MCP
+  session id and a request counter and is not thread-safe.
+
 ### Package: `fictive/parser/`
 
 - `fictive/parser/__init__.py`
@@ -280,7 +448,16 @@ helpers and SGLang integration.
 - `fictive/parser/commands.py`
   Defines the command enum and the dataclass-backed command objects consumed by
   actors and the interpreter, including the scene-language `write` command for
-  file output and the bounded `agent` command.
+  file output and the bounded `agent` command, plus `save-conversation`,
+  `load-conversation`, `rag-generate` and `web-search-and-generate`.
+  `Cmd.from_name`, used by `parse_command_dict` and `Runtime.cmd_exec`, accepts
+  `_` for `-` in command names, so `rag_generate` is `rag-generate`, and a
+  `Cmd._missing_` hook resolves any remaining separator style or case, so
+  `webSearchAndGenerate` is `web-search-and-generate` and `printLatest` is
+  `print-latest`. Resolution only: the member's value, and so the `name` on its
+  dataclass, stays canonical, which is what `exec_map` and saved sessions use.
+  `_missing_` runs only after an exact-value match fails, so the canonical path
+  is unaffected.
 
 - `fictive/parser/expressions.py`
   Expression helpers for the scenario language.
@@ -308,7 +485,10 @@ store state, and hands control across actors through the call stack when a
 
 The concrete LLM backend classes are provided by
 `llm-utils/llm_utils/pipelines.py`. The `fictive` package uses those shared
-pipeline definitions directly.
+pipeline definitions directly. `fictive/pipelines/` adds backends of its own
+that answer the same duck-typed contract without subclassing `LLMPipeline`;
+`BedrockRuntime` builds one and installs it on the actors, so steps 2 and 3
+above are replaced by constructing the runtime.
 
 The `agent` path is separate from ordinary generation:
 
@@ -331,6 +511,19 @@ public `workspace_root`. Requested workspaces must be existing relative
 directories beneath that root. This prevents a scenario from widening host
 permissions and gives both Fictive and the standalone harness an independent
 containment check.
+
+Sessions and retrieval-augmented generation:
+
+1. `save-conversation` (or `Interpreter.save_session`) writes the whole session
+   to `<storage_dir>/conversations/<session_id>.json`.
+2. `load-conversation` (or `Interpreter.load_session`) restores one into an
+   interpreter built from the same scenario.
+3. `rag-generate` picks a backend. With `KNOWLEDGE_BASE_ID` set, it calls
+   Bedrock's `RetrieveAndGenerate` against that Knowledge Base, using
+   `BEDROCK_MODEL_ARN`. Otherwise the local LlamaIndex backend brings
+   `conversations/.rag_index/` up to date with the saved session files,
+   retrieves from sessions other than the current one, and the actor's
+   pipeline generates.
 
 For standard package installation, use:
 
@@ -375,7 +568,9 @@ language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
 ordered conditional branches through the `cond` command, which evaluates
 store-backed expressions and queues nested command blocks for the first
 matching branch, file output through the `write` command, and bounded agentic
-filesystem work through the `agent` command.
+filesystem work through the `agent` command. It can also save and reload a
+whole session with `save-conversation` / `load-conversation`, and generate
+from relevant past conversations with `rag-generate`.
 
 When actor definitions contain relative paths, `load_scenario_config(...)`
 resolves them relative to the scenario directory if the target exists there.
@@ -471,6 +666,36 @@ Run the full suite with:
 ```bash
 ../.venv/bin/python -m unittest discover -s test -p '*test*.py' -v
 ```
+
+### Checking the AWS backends by hand
+
+The Bedrock pipeline and the AgentCore web search backend need live AWS, so
+they are not part of `unittest discover`. Both are built lazily, so everything
+except the calls themselves can be exercised offline by passing a fake:
+`BedrockRuntime(interpreter, name, pipeline=<fake>)` and
+`Interpreter(web_search_backend=<fake>)` reach no AWS at all.
+
+For a live check, set the environment and exercise the pieces in order, so a
+failure names the layer it came from:
+
+```bash
+export AWS_PROFILE=... AWS_REGION=us-east-1
+export BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+export WEBSEARCH_GATEWAY_STACK=<the gateway's CloudFormation stack>
+```
+
+1. `BedrockPipeline().generate([...])` with a system turn, then
+   `generate_stream(...)` -- expect delta events and exactly one `done`. A
+   `ValidationException` on the model id means the inference-profile prefix is
+   wrong for the region.
+2. `AgentCoreGatewayBackend().connect()` then `.search(...)`. "Gateway exposed
+   no tools" means the web-search target is not `READY`; a 403 means SigV4 or
+   the gateway's IAM authorizer; an `UnknownOperationException` under HTTP 200
+   means the `/mcp` suffix was lost.
+3. A `BedrockRuntime` end to end, then assert the history invariant:
+   `actor.history.read(merged=False)` must hold the prompt unwrapped and no
+   search text. If the enclosing prompt appears in stored history, the handler
+   mutated the stored messages instead of the `read()` copy.
 
 ## Agent Harness Compatibility Environment
 

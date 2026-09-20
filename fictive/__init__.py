@@ -19,6 +19,14 @@ from .library_runtime import (
     call_actor,
     drive_flow,
 )
+from .bedrock_runtime import BedrockRuntime
+from .pipelines import build_bedrock_pipeline
+from .pipelines.bedrock import BedrockPipeline
+from .rag import RagResult, RetrievedPassage
+from .rag.bedrock import BedrockKnowledgeBaseBackend
+from .rag.local import LlamaIndexConversationBackend
+from .websearch import WebSearchBackend, build_web_search_backend
+from .websearch.agentcore import AgentCoreGatewayBackend
 
 __all__ = [
     "Actor",
@@ -40,8 +48,18 @@ __all__ = [
     "DebugQuit",
     "Flow",
     "InputRequest",
-    "Runtime",
     "ask",
     "call_actor",
     "drive_flow",
+    "Runtime",
+    "BedrockRuntime",
+    "BedrockPipeline",
+    "build_bedrock_pipeline",
+    "RagResult",
+    "RetrievedPassage",
+    "BedrockKnowledgeBaseBackend",
+    "LlamaIndexConversationBackend",
+    "WebSearchBackend",
+    "build_web_search_backend",
+    "AgentCoreGatewayBackend",
 ]
