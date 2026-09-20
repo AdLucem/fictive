@@ -10,7 +10,15 @@ from .data_structures import Store
 from .parse_scenario_config import load_scenario_config
 from .run import run_debug, run_chat, run_single_actor
 from .debugger import DebuggerSession
-from .library_runtime import Runtime
+from .library_runtime import (
+    DebugQuit,
+    Flow,
+    InputRequest,
+    Runtime,
+    ask,
+    call_actor,
+    drive_flow,
+)
 from .bedrock_runtime import BedrockRuntime
 from .pipelines import build_bedrock_pipeline
 from .pipelines.bedrock import BedrockPipeline
@@ -37,6 +45,12 @@ __all__ = [
     "run_debug",
     "run_single_actor",
     "DebuggerSession",
+    "DebugQuit",
+    "Flow",
+    "InputRequest",
+    "ask",
+    "call_actor",
+    "drive_flow",
     "Runtime",
     "BedrockRuntime",
     "BedrockPipeline",
