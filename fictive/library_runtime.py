@@ -81,6 +81,21 @@ class DebugQuit(Exception):
     """
 
 
+class CommandRestart(Exception):
+    """Raised by a command handler to restart the current flow.
+    
+    The flow driver should catch this and restart the scenario generator
+    with the newly loaded runtime state.
+    """
+
+
+class CommandExit(Exception):
+    """Raised by a command handler to exit the current flow.
+    
+    The flow driver should catch this and exit the scenario.
+    """
+
+
 @dataclass
 class InputRequest:
     """One suspension point: the scenario needs a human answer before it continues.
@@ -136,15 +151,8 @@ class Runtime:
         # `main_actor_name` is the name the debugger falls back to when a
         # command names no actor; it never moves, unlike `working_actor`.
         self.main_actor_name = start_actor_name
-        self.main_actor = interpreter.actor_fetch(start_actor_name)
-        self.working_actor = self.main_actor
+        self.working_actor = interpreter.actor_fetch(start_actor_name)
         self.mode = mode
-        # `handle_command`, `actor_or_main` and `get_exit_message` all read
-        # these, and neither was ever assigned: every `hist`/`actor`/`latest`
-        # with no actor name, and every exit message, raised AttributeError.
-        # Plain attributes, not properties: subclasses assign to them.
-        self.main_actor_name = interpreter.main_actor_name
-        self.main_actor = interpreter.actor_fetch(self.main_actor_name)
 
         self.exit_requested = False
         # Set by `handle_command` when the user asks to let the shown step run.
@@ -172,6 +180,9 @@ class Runtime:
         # Every command executed, as `(command, kwargs)`.
         self.trace: list[tuple[str, dict[str, Any]]] = []
         self.trace_hook: Optional[Callable[[str, str, dict[str, Any]], None]] = None
+
+        # Command registry for special commands like /save, /load
+        self.commands: dict[str, Callable[[Runtime, str], None]] = {}
 
     # ------------------------------------------------------------------
     # state
@@ -230,6 +241,16 @@ class Runtime:
     def clear_visible(self) -> None:
         self.last_visible = None
 
+    def register_command(self, name: str, handler: Callable[[Runtime, str], None]) -> None:
+        """Register a special command handler.
+        
+        Args:
+            name: Command name (without leading /)
+            handler: Function taking (runtime, args) where args is the string
+                     after the command name, or empty string.
+        """
+        self.commands[name] = handler
+
     # ------------------------------------------------------------------
     # commands
     # ------------------------------------------------------------------
@@ -239,8 +260,7 @@ class Runtime:
         return self.interpreter.actor_fetch(self.main_actor_name)
 
     def cmd_exec(self, command: str, **kwargs):
-        """Build one command dataclass and execute it against the working actor.
-
+        """Build one command dataclass and execute it against the working actor."""
         cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 
         if self.mode == "debug":
@@ -696,17 +716,40 @@ def ask(
     question (the default, `content=True`) still needs to reach the human, so it
     is shown.
     """
-    request = InputRequest(
-        actor_name=rt.working_actor_name,
-        prompt=prompt,
-        store=store,
-        history=history,
-        enclosing_prompt=enclosing_prompt,
-        content=content,
-    )
-    answer = yield request
-    rt.deliver(request, answer)
-    return answer
+    while True:
+        request = InputRequest(
+            actor_name=rt.working_actor_name,
+            prompt=prompt,
+            store=store,
+            history=history,
+            enclosing_prompt=enclosing_prompt,
+            content=content,
+        )
+        answer = yield request
+        
+        # Check for command prefix
+        if answer.startswith('/'):
+            # Parse command: /command args
+            parts = answer[1:].split(maxsplit=1)
+            cmd = parts[0]
+            args = parts[1] if len(parts) > 1 else ""
+            
+            if cmd in rt.commands:
+                try:
+                    rt.commands[cmd](rt, args)
+                except (CommandRestart, CommandExit):
+                    raise
+                except Exception as e:
+                    print(f"Command error: {e}")
+                continue  # Command executed, re-prompt
+            elif rt.commands:  # Commands registered but this one not found
+                print(f"Unknown command: /{cmd}. Type /help for list.")
+                continue
+            # No commands registered, treat /input as normal input
+        
+        # Not a command or command handled
+        rt.deliver(request, answer)
+        return answer
 
 
 def call_actor(
