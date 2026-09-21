@@ -12,6 +12,8 @@ from .run import run_debug, run_chat, run_single_actor
 from .debugger import DebuggerSession
 from .library_runtime import (
     DebugQuit,
+    CommandRestart,
+    CommandExit,
     Flow,
     InputRequest,
     Runtime,
@@ -46,6 +48,8 @@ __all__ = [
     "run_single_actor",
     "DebuggerSession",
     "DebugQuit",
+    "CommandRestart",
+    "CommandExit",
     "Flow",
     "InputRequest",
     "ask",

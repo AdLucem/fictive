@@ -1,6 +1,6 @@
 # fictive
 
-A library for creating LLM-based interactive fiction systems.
+A library for programming LLM chains-of-thought and agentic harnesses, right here in Python.
 
 ## Installation and Requirements
 
