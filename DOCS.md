@@ -441,6 +441,17 @@ in `requirements.txt`.
   response carries the whole updated tree, nested callees included. A built
   `ui/dist` is mounted at `/` when present.
 
+  `--pipeline-type` takes any type `llm_utils.pipeline_from_config` builds,
+  `openai` included, so an OpenAI-compatible endpoint such as OpenRouter is
+  reached with `--pipeline-type openai --model <provider/model>`. `--token` and
+  `--base-url` are unset by default and exist only to override: each pipeline
+  resolves its own credentials, so a key meant for one provider is never handed
+  to another. The anthropic SDK reads `ANTHROPIC_API_KEY`, and the
+  openai-compatible path reads `OPENAI_API_KEY` or `OPENROUTER_API_KEY` (with
+  `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`) from the environment or a `.env`
+  in the working directory, which is why no key need appear on the command
+  line.
+
 `fictive/websearch/` holds the `web-search-and-generate` backends, imported
 lazily for the same reason.
 

@@ -49,6 +49,18 @@ python -m fictive.web --scenario examples/ui_demo/scenario \
   --pipeline-type anthropic --model claude-sonnet-5
 ```
 
+For an OpenAI-compatible endpoint, including OpenRouter:
+
+```bash
+# key and base URL come from OPENROUTER_API_KEY / OPENROUTER_BASE_URL, in the
+# environment or a .env in the working directory
+python -m fictive.web --scenario examples/ui_demo/scenario \
+  --pipeline-type openai --model deepseek/deepseek-v3.2
+```
+
+`--token` and `--base-url` override that resolution when you need them to;
+left alone, each pipeline reads only its own provider's variables.
+
 **Pin `anthropic<1` for that path.** `llm_utils.anthropic_messages_completion`
 passes `temperature` to `client.messages.create`, and the 1.x SDK removed that
 parameter, so every call raises `TypeError: Messages.create() got an unexpected

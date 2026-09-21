@@ -195,24 +195,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pipeline-type",
         default="mock",
-        choices=["mock", "sglang", "transformers", "vllm", "minimax", "anthropic"],
+        choices=["mock", "sglang", "transformers", "vllm", "minimax", "anthropic", "openai"],
     )
     parser.add_argument("--model", default="mock")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ui-dist", default=str(DEFAULT_UI_DIST))
-    # The Anthropic pipeline reads its key from `PipelineConfig.token`. Default
-    # it to the environment rather than requiring the key on the command line,
-    # where it would land in shell history and process listings.
+    # Left unset by default so each pipeline resolves its own credentials, and
+    # a key for one provider can never be handed to another: the anthropic SDK
+    # reads ANTHROPIC_API_KEY itself, and llm_utils' openai-compatible path
+    # reads OPENAI_API_KEY or OPENROUTER_API_KEY, from the environment or a
+    # `.env` in the working directory. Pass these only to override that.
     parser.add_argument(
         "--token",
-        default=os.environ.get("ANTHROPIC_API_KEY"),
-        help="API key for a hosted pipeline (default: $ANTHROPIC_API_KEY).",
+        default=None,
+        help="API key, when the pipeline should not resolve its own.",
     )
     parser.add_argument(
         "--base-url",
-        default=os.environ.get("ANTHROPIC_BASE_URL"),
-        help="Override the API base URL (default: $ANTHROPIC_BASE_URL).",
+        default=None,
+        help="API base URL, when the pipeline should not resolve its own.",
     )
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--max-new-tokens", type=int, default=2048)
@@ -223,7 +225,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     import uvicorn
 
     args = build_arg_parser().parse_args(argv)
-    if args.pipeline_type == "anthropic" and not args.token:
+    if args.pipeline_type == "anthropic" and not (args.token or os.environ.get("ANTHROPIC_API_KEY")):
         raise SystemExit(
             "--pipeline-type anthropic needs an API key: set ANTHROPIC_API_KEY or pass --token."
         )
