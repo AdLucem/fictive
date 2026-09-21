@@ -26,6 +26,23 @@ no credentials; swap in `sglang`, `anthropic` or any other pipeline
 `llm_utils.pipeline_from_config` builds, with `--model`, to run the scenario
 against a real one.
 
+For Claude, `--pipeline-type anthropic --model claude-sonnet-5`. The key comes
+from `$ANTHROPIC_API_KEY` (or `--token`), and `--base-url` overrides the
+endpoint:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m fictive.web --scenario examples/ui_demo/scenario \
+  --pipeline-type anthropic --model claude-sonnet-5
+```
+
+**Pin `anthropic<1` for that path.** `llm_utils.anthropic_messages_completion`
+passes `temperature` to `client.messages.create`, and the 1.x SDK removed that
+parameter, so every call raises `TypeError: Messages.create() got an unexpected
+keyword argument 'temperature'` before it reaches the network. On `anthropic
+0.x` the same call reaches the API and authenticates normally. The fix belongs
+in `llm-utils`, which is a submodule of this repository.
+
 **2. The UI**, from `ui/`:
 
 ```bash

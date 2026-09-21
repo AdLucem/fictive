@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 from typing import Optional
 
@@ -200,6 +201,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ui-dist", default=str(DEFAULT_UI_DIST))
+    # The Anthropic pipeline reads its key from `PipelineConfig.token`. Default
+    # it to the environment rather than requiring the key on the command line,
+    # where it would land in shell history and process listings.
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("ANTHROPIC_API_KEY"),
+        help="API key for a hosted pipeline (default: $ANTHROPIC_API_KEY).",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("ANTHROPIC_BASE_URL"),
+        help="Override the API base URL (default: $ANTHROPIC_BASE_URL).",
+    )
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
     return parser
 
 
@@ -207,12 +223,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     import uvicorn
 
     args = build_arg_parser().parse_args(argv)
+    if args.pipeline_type == "anthropic" and not args.token:
+        raise SystemExit(
+            "--pipeline-type anthropic needs an API key: set ANTHROPIC_API_KEY or pass --token."
+        )
     app = create_app(
         scenario_dir=args.scenario,
         storage_dir=args.storage_dir,
         pipeline_type=args.pipeline_type,
         model=args.model,
         ui_dist=args.ui_dist,
+        token=args.token,
+        base_url=args.base_url,
+        temperature=args.temperature,
+        max_new_tokens=args.max_new_tokens,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 
