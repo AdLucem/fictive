@@ -1,0 +1,6 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/source_ranker_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "ref_deduper", "enclosing-prompt": "prompts/source_ranker_task.txt"},
+  {"cmd": "generate"}
+]

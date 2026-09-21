@@ -1,0 +1,20 @@
+{
+  "actors": [
+    "narrator",
+    "scene_critic",
+    "lore_librarian",
+    "continuity_checker",
+    "citation_writer",
+    "quote_formatter",
+    "ref_deduper",
+    "source_ranker"
+  ],
+  "main_actor": "narrator",
+  "actor_types": {
+    "narrator": "generator"
+  },
+  "names": {
+    "user": "Reader",
+    "assistant": "Narrator"
+  }
+}

@@ -225,3 +225,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Node / the `ui/` front end
+node_modules/
+*.tsbuildinfo
+npm-debug.log*

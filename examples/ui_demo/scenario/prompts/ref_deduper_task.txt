@@ -1,0 +1,5 @@
+Here are the formatted references:
+
+{INPUT_FROM}
+
+Return the list with duplicates merged, and say how many you merged.

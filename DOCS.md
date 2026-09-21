@@ -129,6 +129,16 @@ helpers and SGLang integration.
   Git submodule containing shared LLM request utilities, SGLang helpers, and
   its own repository-level documentation.
 
+- `ui/`
+  React (Vite + TypeScript) chat front end for a scenario, served by
+  `fictive/web/`. The main actor's generations are the conversation; every
+  actor a scenario calls appears inline as an expandable bar, one per
+  `run-actor` frame on the interpreter callstack, nested to five levels and
+  counted by name below that. `ui/README.md` documents the two-process
+  development setup and the endpoints the app calls. `npm run build` writes
+  `ui/dist`, which the backend serves at `/` when it exists, so one process can
+  serve both. Node dependencies are not part of the Python install.
+
 - `test/`
   Unit-style coverage for the `fictive` package and compatibility coverage for
   `llm-utils` integration points used by this repository.
@@ -296,39 +306,11 @@ helpers and SGLang integration.
   - `run_single_actor` for single-actor testing that replaces inter-actor
     dependencies with user prompts where needed
 
-<<<<<<< HEAD
-- `fictive/library_runtime.py`
-  The other way to run a scenario: instead of a JSON instruction list, import
-  the library and call interpreter commands from Python, letting Python's own
-  `if`, `while` and function calls supply the control flow. It provides:
-  - `Runtime`, a typed facade where each method (`system`, `generate`,
-    `input_from_store`, `write`, `enter_actor`, ...) is one interpreter command
-    executed against whichever actor currently holds control. It records every
-    command in `trace`, exposes the one generation a host should display via
-    `visible_generate`/`last_visible`, and with `mode="debug"` stops at a
-    `debug> ` prompt before each command.
-  - `InputRequest` plus `ask`, so a scenario written as a generator suspends at
-    exactly the points that need a human answer and resumes through
-    `generator.send(...)`. A blocking terminal driver (`drive_flow`) and a host
-    that resumes the scenario once per HTTP request drive the same generator.
-  - `call_actor`, which is `run-actor` plus the callee's own steps plus the
-    callstack unwind, as a single Python call.
-=======
   This module and `fictive/library_runtime.py` both import `transformers`
   inside a `try/except ImportError`, because they use it for nothing but
   quietening its own logger. `transformers` stays in `requirements.txt` --
   `TransformersPipeline` needs it for local inference -- but an API-only
   install can now import either entry module without it.
->>>>>>> e1b976bef1c88233bf489f3b44eafeca5a49ac08
-
-- `fictive/library_runtime.py`
-  `Runtime`, for hosts that drive the interpreter one command at a time with
-  `cmd_exec(command, **kwargs)` instead of stepping scenario JSON.
-  `cmd_exec` accepts `_` for `-` in command names. `save_session(...)` and
-  `load_session(...)` delegate to the interpreter; after a load,
-  `working_actor` becomes the top of the restored callstack. `main_actor_name`
-  is taken from the interpreter and `main_actor` is a property, so the debugger
-  commands and `get_exit_message()` that read them resolve.
 
 - `fictive/bedrock_runtime.py`
   `BedrockRuntime`, a `Runtime` subclass that installs a Bedrock-backed
@@ -420,6 +402,45 @@ imports the SDK's Bedrock client.
   model id must be an inference profile (`us.anthropic.claude-sonnet-4-6`), not
   a bare model id, and the geography prefix is region-family specific.
 
+`fictive/web/` is the optional HTTP backend behind `ui/`. It is imported only
+when the server runs, so it adds no import cost to the library, and its
+dependencies (`fastapi`, `uvicorn`) live in the `ui-server` extra rather than
+in `requirements.txt`.
+
+- `web/chat.py`
+  `ScenarioSpec` loads a scenario directory once and reads `main_actor` and
+  `actor_types` out of `schema.json` -- the loader returns the schema as-is, so
+  the host still decides which `Actor` subclass each name is built with.
+  `ChatSession` is `run.run_chat` with two changes and no others: it advances
+  the same `DebuggerSession` with `Interpreter.exec_current()` until the same
+  exit checks fire, and because an HTTP request cannot block on stdin, it stops
+  *before* an `input-from` that wants a human answer instead of blocking inside
+  `Actor.prompt_user`. The answer arrives later through `send_input`, and
+  `prompt_user` -- overridden per instance, so a `Scorer` stays a `Scorer` --
+  reads it from the session.
+
+  While stepping, it records each step into the nested tree the UI draws: a
+  `run-actor` opens a `FlowNode` at its callstack depth, the callstack
+  shrinking closes it and reads the callee's return value out of the store, and
+  a `generate` by the main actor becomes a message rather than a step.
+  Generated text is read off raw history, not `get_latest_output()`, because a
+  `Generator` returns its whole scene from that and a `Scorer` returns a
+  number. Streaming would go through `Interpreter.on_generate_delta`, which
+  reaches the pipeline's `generate_stream`; the `llm_utils` pipelines do not
+  define one, so the hook is set only for a pipeline that has it.
+
+- `web/app.py`
+  `create_app(...)` builds the FastAPI app around one scenario and one
+  pipeline, and `main()` runs it under uvicorn
+  (`python -m fictive.web --scenario ... --pipeline-type mock`). Routes:
+  `GET /api/health`, `GET /api/scenario`, `GET /api/sessions` (live runs plus
+  session files found in the storage directory), `POST /api/sessions` (start a
+  run, or resume one with `load_session_id`), `GET /api/sessions/{id}`,
+  `POST /api/sessions/{id}/messages` (one reader turn, run to the next input
+  request), and `POST /api/sessions/{id}/save`. A turn is synchronous: the
+  response carries the whole updated tree, nested callees included. A built
+  `ui/dist` is mounted at `/` when present.
+
 `fictive/websearch/` holds the `web-search-and-generate` backends, imported
 lazily for the same reason.
 
@@ -457,6 +478,16 @@ lazily for the same reason.
   matching `exit` pops it again and fills that `run-actor`'s `store` variable
   with the callee's last output. Actors built for this runtime are created
   without `instructions` or `source_file`, so their instruction list is empty.
+
+  `Runtime` also carries the pieces a non-terminal host needs: `cmd_exec`
+  accepts `_` for `-` in command names, `save_session(...)` / `load_session(...)`
+  delegate to the interpreter (after a load, `working_actor` becomes the top of
+  the restored callstack), `main_actor_name` comes from the interpreter and
+  `main_actor` is a property, so the debugger commands and `get_exit_message()`
+  that read them resolve. `InputRequest` plus `ask` let a scenario written as a
+  generator suspend at exactly the points that need a human answer and resume
+  through `generator.send(...)`, and `call_actor` is `run-actor` plus the
+  callee's steps plus the callstack unwind as one Python call.
 
   Every example under `examples/` is driven this way.
 
@@ -554,6 +585,19 @@ public `workspace_root`. Requested workspaces must be existing relative
 directories beneath that root. This prevents a scenario from widening host
 permissions and gives both Fictive and the standalone harness an independent
 containment check.
+
+Chat mode over HTTP (`fictive/web/`, driving `ui/`) is the same flow as
+`run_chat` with the human turn moved off stdin:
+
+1. The host builds one pipeline and one `ScenarioSpec`, and each session builds
+   its own actors and `Interpreter` from that spec.
+2. `ChatSession.advance()` steps `exec_current()` until `DebuggerSession`
+   reports an exit or the next instruction is an `input-from` wanting a human
+   answer, and the request returns at that point.
+3. `POST /api/sessions/{id}/messages` queues the answer and advances again, so
+   one request runs the reader's turn plus every actor that turn calls.
+4. Each step is recorded at its callstack depth, which is what makes a called
+   actor's flow drawable inside the caller's.
 
 Sessions and retrieval-augmented generation:
 

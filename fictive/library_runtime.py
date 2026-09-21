@@ -136,15 +136,12 @@ class Runtime:
         # `main_actor_name` is the name the debugger falls back to when a
         # command names no actor; it never moves, unlike `working_actor`.
         self.main_actor_name = start_actor_name
-        self.main_actor = interpreter.actor_fetch(start_actor_name)
-        self.working_actor = self.main_actor
+        self.working_actor = interpreter.actor_fetch(start_actor_name)
         self.mode = mode
         # `handle_command`, `actor_or_main` and `get_exit_message` all read
-        # these, and neither was ever assigned: every `hist`/`actor`/`latest`
-        # with no actor name, and every exit message, raised AttributeError.
-        # Plain attributes, not properties: subclasses assign to them.
+        # these; `main_actor_name` is taken from the interpreter and
+        # `main_actor` is the property below, which resolves it on each read.
         self.main_actor_name = interpreter.main_actor_name
-        self.main_actor = interpreter.actor_fetch(self.main_actor_name)
 
         self.exit_requested = False
         # Set by `handle_command` when the user asks to let the shown step run.
@@ -239,7 +236,7 @@ class Runtime:
         return self.interpreter.actor_fetch(self.main_actor_name)
 
     def cmd_exec(self, command: str, **kwargs):
-        """Build one command dataclass and execute it against the working actor.
+        """Build one command dataclass and execute it against the working actor."""
 
         cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 

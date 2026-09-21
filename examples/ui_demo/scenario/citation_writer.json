@@ -1,0 +1,8 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/citation_writer_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "continuity_checker", "enclosing-prompt": "prompts/citation_writer_task.txt"},
+  {"cmd": "generate"},
+  {"cmd": "run-actor", "actor-name": "quote_formatter", "store": "quotes"},
+  {"cmd": "exit"}
+]

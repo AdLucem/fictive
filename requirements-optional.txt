@@ -10,3 +10,6 @@ boto3
 botocore[crt]
 llama-index-core>=0.14.24,<0.15
 llama-index-embeddings-huggingface>=0.8.0,<0.9
+# Optional web backend for the `ui/` chat app (`python -m fictive.web`)
+fastapi>=0.110
+uvicorn[standard]>=0.27
