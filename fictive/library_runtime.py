@@ -261,6 +261,7 @@ class Runtime:
 
     def cmd_exec(self, command: str, **kwargs):
         """Build one command dataclass and execute it against the working actor."""
+
         cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 
         if self.mode == "debug":

@@ -1,0 +1,6 @@
+The archive reported:
+
+{INPUT_FROM}
+
+List any continuity problems this creates for the scene, one line each. Write
+"No continuity problems." if there are none.

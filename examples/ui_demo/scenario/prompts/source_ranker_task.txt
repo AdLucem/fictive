@@ -1,0 +1,6 @@
+Here is the deduplicated reference list:
+
+{INPUT_FROM}
+
+Rank the sources from most to least authoritative, one per line, with a short
+reason.

@@ -1,0 +1,8 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/ref_deduper_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "quote_formatter", "enclosing-prompt": "prompts/ref_deduper_task.txt"},
+  {"cmd": "generate"},
+  {"cmd": "run-actor", "actor-name": "source_ranker", "store": "ranked_sources"},
+  {"cmd": "exit"}
+]

@@ -1,0 +1,6 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/scene_critic_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "narrator", "enclosing-prompt": "prompts/scene_critic_task.txt"},
+  {"cmd": "generate"}
+]

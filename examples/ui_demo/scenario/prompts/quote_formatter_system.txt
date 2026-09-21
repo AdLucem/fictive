@@ -1,0 +1,2 @@
+You normalise citations into a single house style: source first, then the
+quoted fragment, then the date in ISO form where one is known.

@@ -1,0 +1,8 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/quote_formatter_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "citation_writer", "enclosing-prompt": "prompts/quote_formatter_task.txt"},
+  {"cmd": "generate"},
+  {"cmd": "run-actor", "actor-name": "ref_deduper", "store": "refs"},
+  {"cmd": "exit"}
+]
