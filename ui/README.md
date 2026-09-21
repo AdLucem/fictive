@@ -17,9 +17,22 @@ Two processes in development, one in production.
 **1. The backend** (`fictive/web/`), from the repository root:
 
 ```bash
+git submodule update --init          # llm-utils; fictive/_bootstrap.py puts it on sys.path
 pip install -e ".[ui-server]"
 python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
 ```
+
+`pip install -e .` pulls the whole training stack — torch, torchvision,
+transformers, scikit-learn — none of which this backend touches when the model
+is hosted or mocked. Verified minimum for running the UI, in a clean
+virtualenv:
+
+```bash
+pip install lark requests fastapi "uvicorn[standard]" "anthropic<1"
+```
+
+With the submodule checked out, that is enough to import `fictive`, serve the
+API and run a scenario end to end.
 
 It serves on `http://127.0.0.1:8000`. `--pipeline-type mock` needs no model and
 no credentials; swap in `sglang`, `anthropic` or any other pipeline
@@ -39,8 +52,11 @@ python -m fictive.web --scenario examples/ui_demo/scenario \
 **Pin `anthropic<1` for that path.** `llm_utils.anthropic_messages_completion`
 passes `temperature` to `client.messages.create`, and the 1.x SDK removed that
 parameter, so every call raises `TypeError: Messages.create() got an unexpected
-keyword argument 'temperature'` before it reaches the network. On `anthropic
-0.x` the same call reaches the API and authenticates normally. The fix belongs
+keyword argument 'temperature'` before it reaches the network. This includes
+`anthropic==1.3.0`, which `requirements.txt` pins, so the repository's own
+documented install hits it: checked against 1.3.0 and 1.7.0, and neither
+accepts the parameter. On `anthropic 0.x` the same call reaches the API and
+authenticates normally (a bad key comes back as a clean 401). The fix belongs
 in `llm-utils`, which is a submodule of this repository.
 
 **2. The UI**, from `ui/`:
