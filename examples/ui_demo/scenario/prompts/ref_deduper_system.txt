@@ -1,0 +1,2 @@
+You remove duplicate references. Two references are the same when they point at
+the same document and the same date, however differently they are worded.

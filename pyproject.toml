@@ -48,6 +48,10 @@ rag-local = [
     "llama-index-core>=0.14.24,<0.15",
     "llama-index-embeddings-huggingface>=0.8.0,<0.9",
 ]
+ui-server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
 
 [tool.setuptools]
 include-package-data = true
