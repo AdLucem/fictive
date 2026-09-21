@@ -18,17 +18,19 @@ Two processes in development, one in production.
 
 ```bash
 git submodule update --init          # llm-utils; fictive/_bootstrap.py puts it on sys.path
-pip install -e ".[ui-server]"
-python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
+uv pip install --python .venv/bin/python fastapi "uvicorn[standard]"
+.venv/bin/python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
 ```
 
-`pip install -e .` pulls the whole training stack — torch, torchvision,
-transformers, scikit-learn — none of which this backend touches when the model
-is hosted or mocked. Verified minimum for running the UI, in a clean
-virtualenv:
+Those two packages are the `ui-server` extra. They are installed directly
+rather than through `pip install -e ".[ui-server]"` for two reasons: the
+repository's `.venv` is uv-managed and carries no `pip` of its own, and
+`-e .` pulls the whole training stack — torch, torchvision, transformers,
+scikit-learn — none of which this backend touches when the model is hosted or
+mocked. Verified minimum for running the UI, in a clean virtualenv:
 
 ```bash
-pip install lark requests fastapi "uvicorn[standard]" "anthropic<1"
+uv pip install --python .venv/bin/python lark requests fastapi "uvicorn[standard]" "anthropic<1"
 ```
 
 With the submodule checked out, that is enough to import `fictive`, serve the

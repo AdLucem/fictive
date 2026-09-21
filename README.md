@@ -31,6 +31,42 @@ Make sure your `gcc` compiler is up to date!
 
 If you want to run models from the `Qwen3.5` series, `qwen3_requirements.txt` has a set of instructions that work.
 
+## Web UI
+
+Run a scenario in the browser. From the repository root:
+
+```bash
+uv pip install --python .venv/bin/python fastapi "uvicorn[standard]"
+.venv/bin/python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
+```
+
+Those two packages are the `ui-server` extra, installed directly because the
+repository's `.venv` is uv-managed and has no `pip` of its own.
+
+Then, from `ui/`:
+
+```bash
+npm install
+npm run dev
+```
+
+The app is served at `http://localhost:5173`.
+
+`mock` needs no model or credentials. For a real model, pass any pipeline
+`llm-utils` builds:
+
+```bash
+python -m fictive.web --scenario examples/ui_demo/scenario \
+  --pipeline-type openai --model deepseek/deepseek-v3.2
+```
+
+Each pipeline reads its own provider's key and base URL from the environment or
+a `.env` in the working directory (`OPENROUTER_API_KEY` /
+`OPENROUTER_BASE_URL`, `ANTHROPIC_API_KEY`, and so on).
+
+To serve the app from the backend instead of the dev server, run
+`npm run build` in `ui/`; the backend mounts `ui/dist` at `/`.
+
 ## Agent Harness Compatibility Spike
 
 The independent `agent-harness/` package owns the pinned Pydantic AI Harness

@@ -1,4 +1,4 @@
-# Repository Docs
+# `fictive` Repository Docs
 
 ## Overview
 
@@ -128,6 +128,16 @@ helpers and SGLang integration.
 - `llm-utils/`
   Git submodule containing shared LLM request utilities, SGLang helpers, and
   its own repository-level documentation.
+
+- `ui/`
+  React (Vite + TypeScript) chat front end for a scenario, served by
+  `fictive/web/`. The main actor's generations are the conversation; every
+  actor a scenario calls appears inline as an expandable bar, one per
+  `run-actor` frame on the interpreter callstack, nested to five levels and
+  counted by name below that. `ui/README.md` documents the two-process
+  development setup and the endpoints the app calls. `npm run build` writes
+  `ui/dist`, which the backend serves at `/` when it exists, so one process can
+  serve both. Node dependencies are not part of the Python install.
 
 - `test/`
   Unit-style coverage for the `fictive` package and compatibility coverage for
@@ -296,39 +306,11 @@ helpers and SGLang integration.
   - `run_single_actor` for single-actor testing that replaces inter-actor
     dependencies with user prompts where needed
 
-<<<<<<< HEAD
-- `fictive/library_runtime.py`
-  The other way to run a scenario: instead of a JSON instruction list, import
-  the library and call interpreter commands from Python, letting Python's own
-  `if`, `while` and function calls supply the control flow. It provides:
-  - `Runtime`, a typed facade where each method (`system`, `generate`,
-    `input_from_store`, `write`, `enter_actor`, ...) is one interpreter command
-    executed against whichever actor currently holds control. It records every
-    command in `trace`, exposes the one generation a host should display via
-    `visible_generate`/`last_visible`, and with `mode="debug"` stops at a
-    `debug> ` prompt before each command.
-  - `InputRequest` plus `ask`, so a scenario written as a generator suspends at
-    exactly the points that need a human answer and resumes through
-    `generator.send(...)`. A blocking terminal driver (`drive_flow`) and a host
-    that resumes the scenario once per HTTP request drive the same generator.
-  - `call_actor`, which is `run-actor` plus the callee's own steps plus the
-    callstack unwind, as a single Python call.
-=======
   This module and `fictive/library_runtime.py` both import `transformers`
   inside a `try/except ImportError`, because they use it for nothing but
   quietening its own logger. `transformers` stays in `requirements.txt` --
   `TransformersPipeline` needs it for local inference -- but an API-only
   install can now import either entry module without it.
->>>>>>> e1b976bef1c88233bf489f3b44eafeca5a49ac08
-
-- `fictive/library_runtime.py`
-  `Runtime`, for hosts that drive the interpreter one command at a time with
-  `cmd_exec(command, **kwargs)` instead of stepping scenario JSON.
-  `cmd_exec` accepts `_` for `-` in command names. `save_session(...)` and
-  `load_session(...)` delegate to the interpreter; after a load,
-  `working_actor` becomes the top of the restored callstack. `main_actor_name`
-  is taken from the interpreter and `main_actor` is a property, so the debugger
-  commands and `get_exit_message()` that read them resolve.
 
 - `fictive/bedrock_runtime.py`
   `BedrockRuntime`, a `Runtime` subclass that installs a Bedrock-backed
@@ -420,6 +402,56 @@ imports the SDK's Bedrock client.
   model id must be an inference profile (`us.anthropic.claude-sonnet-4-6`), not
   a bare model id, and the geography prefix is region-family specific.
 
+`fictive/web/` is the optional HTTP backend behind `ui/`. It is imported only
+when the server runs, so it adds no import cost to the library, and its
+dependencies (`fastapi`, `uvicorn`) live in the `ui-server` extra rather than
+in `requirements.txt`.
+
+- `web/chat.py`
+  `ScenarioSpec` loads a scenario directory once and reads `main_actor` and
+  `actor_types` out of `schema.json` -- the loader returns the schema as-is, so
+  the host still decides which `Actor` subclass each name is built with.
+  `ChatSession` is `run.run_chat` with two changes and no others: it advances
+  the same `DebuggerSession` with `Interpreter.exec_current()` until the same
+  exit checks fire, and because an HTTP request cannot block on stdin, it stops
+  *before* an `input-from` that wants a human answer instead of blocking inside
+  `Actor.prompt_user`. The answer arrives later through `send_input`, and
+  `prompt_user` -- overridden per instance, so a `Scorer` stays a `Scorer` --
+  reads it from the session.
+
+  While stepping, it records each step into the nested tree the UI draws: a
+  `run-actor` opens a `FlowNode` at its callstack depth, the callstack
+  shrinking closes it and reads the callee's return value out of the store, and
+  a `generate` by the main actor becomes a message rather than a step.
+  Generated text is read off raw history, not `get_latest_output()`, because a
+  `Generator` returns its whole scene from that and a `Scorer` returns a
+  number. Streaming would go through `Interpreter.on_generate_delta`, which
+  reaches the pipeline's `generate_stream`; the `llm_utils` pipelines do not
+  define one, so the hook is set only for a pipeline that has it.
+
+- `web/app.py`
+  `create_app(...)` builds the FastAPI app around one scenario and one
+  pipeline, and `main()` runs it under uvicorn
+  (`python -m fictive.web --scenario ... --pipeline-type mock`). Routes:
+  `GET /api/health`, `GET /api/scenario`, `GET /api/sessions` (live runs plus
+  session files found in the storage directory), `POST /api/sessions` (start a
+  run, or resume one with `load_session_id`), `GET /api/sessions/{id}`,
+  `POST /api/sessions/{id}/messages` (one reader turn, run to the next input
+  request), and `POST /api/sessions/{id}/save`. A turn is synchronous: the
+  response carries the whole updated tree, nested callees included. A built
+  `ui/dist` is mounted at `/` when present.
+
+  `--pipeline-type` takes any type `llm_utils.pipeline_from_config` builds,
+  `openai` included, so an OpenAI-compatible endpoint such as OpenRouter is
+  reached with `--pipeline-type openai --model <provider/model>`. `--token` and
+  `--base-url` are unset by default and exist only to override: each pipeline
+  resolves its own credentials, so a key meant for one provider is never handed
+  to another. The anthropic SDK reads `ANTHROPIC_API_KEY`, and the
+  openai-compatible path reads `OPENAI_API_KEY` or `OPENROUTER_API_KEY` (with
+  `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`) from the environment or a `.env`
+  in the working directory, which is why no key need appear on the command
+  line.
+
 `fictive/websearch/` holds the `web-search-and-generate` backends, imported
 lazily for the same reason.
 
@@ -457,6 +489,16 @@ lazily for the same reason.
   matching `exit` pops it again and fills that `run-actor`'s `store` variable
   with the callee's last output. Actors built for this runtime are created
   without `instructions` or `source_file`, so their instruction list is empty.
+
+  `Runtime` also carries the pieces a non-terminal host needs: `cmd_exec`
+  accepts `_` for `-` in command names, `save_session(...)` / `load_session(...)`
+  delegate to the interpreter (after a load, `working_actor` becomes the top of
+  the restored callstack), `main_actor_name` comes from the interpreter and
+  `main_actor` is a property, so the debugger commands and `get_exit_message()`
+  that read them resolve. `InputRequest` plus `ask` let a scenario written as a
+  generator suspend at exactly the points that need a human answer and resume
+  through `generator.send(...)`, and `call_actor` is `run-actor` plus the
+  callee's steps plus the callstack unwind as one Python call.
 
   Every example under `examples/` is driven this way.
 
@@ -555,6 +597,19 @@ directories beneath that root. This prevents a scenario from widening host
 permissions and gives both Fictive and the standalone harness an independent
 containment check.
 
+Chat mode over HTTP (`fictive/web/`, driving `ui/`) is the same flow as
+`run_chat` with the human turn moved off stdin:
+
+1. The host builds one pipeline and one `ScenarioSpec`, and each session builds
+   its own actors and `Interpreter` from that spec.
+2. `ChatSession.advance()` steps `exec_current()` until `DebuggerSession`
+   reports an exit or the next instruction is an `input-from` wanting a human
+   answer, and the request returns at that point.
+3. `POST /api/sessions/{id}/messages` queues the answer and advances again, so
+   one request runs the reader's turn plus every actor that turn calls.
+4. Each step is recorded at its callstack depth, which is what makes a called
+   actor's flow drawable inside the caller's.
+
 Sessions and retrieval-augmented generation:
 
 1. `save-conversation` (or `Interpreter.save_session`) writes the whole session
@@ -572,210 +627,4 @@ For standard package installation, use:
 
 ```bash
 pip install -e .
-```
-
-The package metadata in `pyproject.toml` declares the runtime dependencies,
-including the direct `llm-utils` dependency used by the actor and runtime
-modules. The repo-root compatibility shim remains for vendored/submodule use,
-but normal installation no longer depends on a sibling `llm-utils/` checkout.
-
-If this repository is included in another project as a git submodule at
-`fictive/`, code in the parent project can import the public API directly from
-the parent root:
-
-```python
-from fictive import Actor, ActorConfig, Interpreter
-from fictive.data_structures import Store
-```
-
-The repo-root `__init__.py` forwards those imports to the inner
-`fictive/` package so parent projects do not need to import from
-`fictive.fictive`.
-
-## Scenario Configuration
-
-Scenario loading expects a directory with this general shape:
-
-```text
-my_scenario/
-  schema.json
-  generator.json
-  scorer.json
-  prompts/
-    intro.txt
-```
-
-`schema.json` names the actors and can define actor output-format regexes.
-Each actor JSON file contains that actor's instruction sequence in the command
-language documented in `SCENE_CONFIG_LANGUAGE.md`. The scene language supports
-ordered conditional branches through the `cond` command, which evaluates
-store-backed expressions and queues nested command blocks for the first
-matching branch, file output through the `write` command, and bounded agentic
-filesystem work through the `agent` command. It can also save and reload a
-whole session with `save-conversation` / `load-conversation`, and generate
-from relevant past conversations with `rag-generate`.
-
-When actor definitions contain relative paths, `load_scenario_config(...)`
-resolves them relative to the scenario directory if the target exists there.
-The exception is `agent.workspace`: it must remain relative until interpreter
-execution so it can be checked against the host-provided agent root.
-
-## Example: Workspace-Scoped Agent
-
-The offline example exercises the complete scenario-to-harness path:
-
-```bash
-../.venv/bin/python examples/agent_filesystem_demo/main.py
-```
-
-It uses a temporary maximum workspace root, seeds `notes.txt`, and lets a
-deterministic fake provider call `read_file` and `write_file`. It prints the
-created `summary.txt` and the normalized changed paths, then cleans up the
-temporary directory. No network or credentials are needed.
-
-To retain the output, supply an existing directory containing `notes.txt`:
-
-```bash
-../.venv/bin/python examples/agent_filesystem_demo/main.py \
-  --workspace /tmp/fictive-agent-demo
-```
-
-The example's `main.py` shows the required host construction: the same
-canonical directory is supplied to `PydanticAgentExecutor(workspace_root=...)`
-and `Interpreter(agent_root=...)`. See `MINIMAX_AGENT_SETUP.md` for the
-separate opt-in MiniMax configuration.
-
-## Example: Build And Run A Scenario Interpreter
-
-```python
-from fictive import Actor, ActorConfig, Interpreter, load_scenario_config
-from llm_utils import PipelineConfig, pipeline_from_config
-
-schema, actor_definitions, author_intent = load_scenario_config("path/to/scenario")
-
-pipeline_cfg = PipelineConfig(
-    model="meta-llama/Llama-3.1-8B-Instruct",
-    pipeline_type="mock",
-)
-pipeline = pipeline_from_config(pipeline_cfg)
-
-actors = []
-for actor_name, instructions in actor_definitions.items():
-    actors.append(
-        Actor(
-            ActorConfig(
-                name=actor_name,
-                storage_dir="path/to/scenario",
-                instructions=instructions,
-                pipeline=pipeline,
-            )
-        )
-    )
-
-interpreter = Interpreter(actors, main_actor_name="generator")
-```
-
-## Testing
-
-The repository test suite lives in `test/`.
-
-- `test/data_structures_test.py`
-  Covers `History`, `Scene`, and `Store`.
-
-- `test/parse_scenario_config_tests.py`
-  Covers scenario loading and relative-path resolution.
-
-- `test/pipelines_tests.py`
-  Covers pipeline config helpers and prompt parsing behavior.
-
-- `test/run_tests.py`
-  Covers top-level scenario-loading behavior used by runtime entry points.
-
-- `test/request_sglang_tests.py`
-  Covers the SGLang request CLI and prompt parsing behavior provided through
-  `llm-utils`.
-
-- `test/llm_utils_tests.py`
-  Covers `llm-utils` config conversion behavior relied on by this repository.
-
-- `test/agent_integration_tests.py`
-  Covers command parsing, scenario workspace preservation, history and prompt
-  transfer, the real standalone-executor seam, output/trace storage,
-  containment rejection, pipeline-free actors, and interpreter state after
-  successful and failed nested runs.
-
-Run the full suite with:
-
-```bash
-../.venv/bin/python -m unittest discover -s test -p '*test*.py' -v
-```
-
-### Checking the AWS backends by hand
-
-The Bedrock pipeline and the AgentCore web search backend need live AWS, so
-they are not part of `unittest discover`. Both are built lazily, so everything
-except the calls themselves can be exercised offline by passing a fake:
-`BedrockRuntime(interpreter, name, pipeline=<fake>)` and
-`Interpreter(web_search_backend=<fake>)` reach no AWS at all.
-
-For a live check, set the environment and exercise the pieces in order, so a
-failure names the layer it came from:
-
-```bash
-export AWS_PROFILE=... AWS_REGION=us-east-1
-export BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
-export WEBSEARCH_GATEWAY_STACK=<the gateway's CloudFormation stack>
-```
-
-1. `BedrockPipeline().generate([...])` with a system turn, then
-   `generate_stream(...)` -- expect delta events and exactly one `done`. A
-   `ValidationException` on the model id means the inference-profile prefix is
-   wrong for the region.
-2. `AgentCoreGatewayBackend().connect()` then `.search(...)`. "Gateway exposed
-   no tools" means the web-search target is not `READY`; a 403 means SigV4 or
-   the gateway's IAM authorizer; an `UnknownOperationException` under HTTP 200
-   means the `/mcp` suffix was lost.
-3. A `BedrockRuntime` end to end, then assert the history invariant:
-   `actor.history.read(merged=False)` must hold the prompt unwrapped and no
-   search text. If the enclosing prompt appears in stored history, the handler
-   mutated the stored messages instead of the `read()` copy.
-
-## Agent Harness Compatibility Environment
-
-From the `fictive/` repository root, install the complete command-line
-environment into the caller-provided virtual environment with `uv`:
-
-```bash
-uv pip install --python ../.venv/bin/python -r requirements.txt
-../.venv/bin/python compatibility/agent_harness_spike.py
-```
-
-The compatibility command is offline by default. Real MiniMax environment
-variables and the explicit live command are documented separately in
-`MINIMAX_AGENT_SETUP.md` so credentials stay out of scenarios and examples.
-
-Run the standalone wrapper suite without network credentials:
-
-```bash
-../.venv/bin/python -m unittest discover -s agent-harness/tests -v
-```
-
-Build and run the same offline check in Docker from the `fictive/` repository
-root:
-
-```bash
-docker build -t fictive-agent-spike .
-docker run --rm fictive-agent-spike \
-  python3 compatibility/agent_harness_spike.py
-```
-
-The Docker build itself also runs the offline check. Live credentials must be
-provided only at container runtime. The image entrypoint automatically exports
-variables from `/app/.env` when that file is present; alternatively, Docker can
-inject the same variables directly with `--env-file`:
-
-```bash
-docker run --rm --env-file ../.env \
-  fictive-agent-spike \
-  python3 compatibility/agent_harness_spike.py --live
 ```
