@@ -1,0 +1,8 @@
+[
+  {"cmd": "refresh"},
+  {"cmd": "system", "prompt": "prompts/continuity_checker_system.txt"},
+  {"cmd": "input-from", "input-from-actor": "lore_librarian", "enclosing-prompt": "prompts/continuity_checker_task.txt"},
+  {"cmd": "generate"},
+  {"cmd": "run-actor", "actor-name": "citation_writer", "store": "citations"},
+  {"cmd": "exit"}
+]

@@ -81,6 +81,21 @@ class DebugQuit(Exception):
     """
 
 
+class CommandRestart(Exception):
+    """Raised by a command handler to restart the current flow.
+    
+    The flow driver should catch this and restart the scenario generator
+    with the newly loaded runtime state.
+    """
+
+
+class CommandExit(Exception):
+    """Raised by a command handler to exit the current flow.
+    
+    The flow driver should catch this and exit the scenario.
+    """
+
+
 @dataclass
 class InputRequest:
     """One suspension point: the scenario needs a human answer before it continues.
@@ -111,6 +126,13 @@ class InputRequest:
 Flow = Generator[InputRequest, str, Any]
 
 
+# A session file holds actor histories, the store and the callstack -- not a
+# flow's position, which lives in a Python generator. So a host that resumes a
+# saved session has to start a flow again, and sets this store variable first so
+# a flow can tell a resume from a fresh start and skip its own prologue.
+RESUMED_STORE_KEY = "_fictive_resumed"
+
+
 class Runtime:
     """Execute interpreter commands from Python, one call at a time.
 
@@ -136,15 +158,8 @@ class Runtime:
         # `main_actor_name` is the name the debugger falls back to when a
         # command names no actor; it never moves, unlike `working_actor`.
         self.main_actor_name = start_actor_name
-        self.main_actor = interpreter.actor_fetch(start_actor_name)
-        self.working_actor = self.main_actor
+        self.working_actor = interpreter.actor_fetch(start_actor_name)
         self.mode = mode
-        # `handle_command`, `actor_or_main` and `get_exit_message` all read
-        # these, and neither was ever assigned: every `hist`/`actor`/`latest`
-        # with no actor name, and every exit message, raised AttributeError.
-        # Plain attributes, not properties: subclasses assign to them.
-        self.main_actor_name = interpreter.main_actor_name
-        self.main_actor = interpreter.actor_fetch(self.main_actor_name)
 
         self.exit_requested = False
         # Set by `handle_command` when the user asks to let the shown step run.
@@ -172,6 +187,9 @@ class Runtime:
         # Every command executed, as `(command, kwargs)`.
         self.trace: list[tuple[str, dict[str, Any]]] = []
         self.trace_hook: Optional[Callable[[str, str, dict[str, Any]], None]] = None
+
+        # Command registry for special commands like /save, /load
+        self.commands: dict[str, Callable[[Runtime, str], None]] = {}
 
     # ------------------------------------------------------------------
     # state
@@ -230,12 +248,26 @@ class Runtime:
     def clear_visible(self) -> None:
         self.last_visible = None
 
+    def register_command(self, name: str, handler: Callable[[Runtime, str], None]) -> None:
+        """Register a special command handler.
+        
+        Args:
+            name: Command name (without leading /)
+            handler: Function taking (runtime, args) where args is the string
+                     after the command name, or empty string.
+        """
+        self.commands[name] = handler
+
     # ------------------------------------------------------------------
     # commands
     # ------------------------------------------------------------------
 
+    @property
+    def main_actor(self) -> Actor:
+        return self.interpreter.actor_fetch(self.main_actor_name)
+
     def cmd_exec(self, command: str, **kwargs):
-        """Build one command dataclass and execute it against the working actor.
+        """Build one command dataclass and execute it against the working actor."""
 
         cmd = Cmd.from_name(command).map_to_dataclass()(**kwargs)
 
@@ -463,6 +495,28 @@ class Runtime:
             self.working_actor = self.interpreter.actor_fetch(self.interpreter.callstack[-1])
         return loaded_id
 
+    def unwind_working_actor(self) -> Actor:
+        """Return control from the working actor to the one that called it.
+
+        Mirrors the unwinding half of `Interpreter.exec_current`. When the
+        callstack empties, the finished actor stays as the working actor and
+        `exit_requested` is set, so a driving loop can tell that the flow is
+        over.
+        """
+        finished_actor = self.working_actor
+        finished_actor.clear_pending_instructions()
+        finished_actor.return_after_pending = False
+        self.interpreter.unwind_actor(finished_actor.name)
+
+        if self.interpreter.callstack:
+            self.working_actor = self.interpreter.actor_fetch(
+                self.interpreter.callstack[-1]
+            )
+        else:
+            self.exit_requested = True
+
+        return self.working_actor
+
     def handle_command(self, raw_command: str) -> list[str]:
         """Run one debugger command and return the lines it wants printed.
 
@@ -606,6 +660,18 @@ class Runtime:
             lines.append(f"{name}: {position}{on_stack}{marker}")
         return "\n".join(lines)
 
+    @staticmethod
+    def describe_current_instr(actor: Actor) -> str:
+        """Describe an actor's current instruction, tolerating library actors.
+
+        An actor driven by `cmd_exec` has no instruction list of its own, so
+        asking it for a current instruction is not an error -- there simply
+        isn't one.
+        """
+        if (not actor.instructions) and (not actor.has_pending_instruction()):
+            return "<driven by the library runtime>"
+        return str(actor.get_current_instr())
+
     def format_history(self, actor_name: str) -> str:
         history = self.interpreter.actor_fetch(actor_name).history.read()
         if not history:
@@ -658,17 +724,40 @@ def ask(
     question (the default, `content=True`) still needs to reach the human, so it
     is shown.
     """
-    request = InputRequest(
-        actor_name=rt.working_actor_name,
-        prompt=prompt,
-        store=store,
-        history=history,
-        enclosing_prompt=enclosing_prompt,
-        content=content,
-    )
-    answer = yield request
-    rt.deliver(request, answer)
-    return answer
+    while True:
+        request = InputRequest(
+            actor_name=rt.working_actor_name,
+            prompt=prompt,
+            store=store,
+            history=history,
+            enclosing_prompt=enclosing_prompt,
+            content=content,
+        )
+        answer = yield request
+        
+        # Check for command prefix
+        if answer.startswith('/'):
+            # Parse command: /command args
+            parts = answer[1:].split(maxsplit=1)
+            cmd = parts[0]
+            args = parts[1] if len(parts) > 1 else ""
+            
+            if cmd in rt.commands:
+                try:
+                    rt.commands[cmd](rt, args)
+                except (CommandRestart, CommandExit):
+                    raise
+                except Exception as e:
+                    print(f"Command error: {e}")
+                continue  # Command executed, re-prompt
+            elif rt.commands:  # Commands registered but this one not found
+                print(f"Unknown command: /{cmd}. Type /help for list.")
+                continue
+            # No commands registered, treat /input as normal input
+        
+        # Not a command or command handled
+        rt.deliver(request, answer)
+        return answer
 
 
 def call_actor(

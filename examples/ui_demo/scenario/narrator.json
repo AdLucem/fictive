@@ -1,0 +1,10 @@
+[
+  {"cmd": "system", "prompt": "prompts/narrator_system.txt"},
+  {"cmd": "generate", "prompt": "prompts/narrator_opening.txt"},
+  {"cmd": "input-from", "human_prompt": ""},
+  {"cmd": "run-actor", "actor-name": "scene_critic", "store": "pacing_note"},
+  {"cmd": "run-actor", "actor-name": "lore_librarian", "store": "lore"},
+  {"cmd": "input-from", "input-from-store": "lore", "enclosing-prompt": "(LORE FROM THE ARCHIVE: {INPUT_FROM})"},
+  {"cmd": "generate"},
+  {"cmd": "loop", "step": 2}
+]

@@ -1,4 +1,9 @@
-"""Run Fictive's agent command against a workspace-scoped filesystem."""
+"""Run Fictive's agent command against a workspace-scoped filesystem.
+
+The flow is driven from Python with `fictive.Runtime` (the library
+runtime) rather than from the JSON instruction list in
+`scenario/filesystem_worker.json`, which the JSON runtime would load.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agent_harness import AgentPermissions, AgentProfile, PydanticAgentExecutor
-from fictive import Actor, ActorConfig, Interpreter, Store, load_scenario_config
+from fictive import Actor, ActorConfig, Interpreter, Runtime, Store
 
 
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic"
@@ -154,35 +159,47 @@ def workspace_context(requested: Path | None):
 
 def run_demo(provider: str, requested_workspace: Path | None) -> None:
     scenario_dir = Path(__file__).resolve().parent / "scenario"
-    schema, actor_definitions, _ = load_scenario_config(str(scenario_dir))
 
     with workspace_context(requested_workspace) as context_value:
         workspace_root = Path(context_value).resolve()
         if requested_workspace is None:
             (workspace_root / "notes.txt").write_text(SEED_NOTES, encoding="utf-8")
 
-        actors = [
-            Actor(
-                ActorConfig(
-                    name=actor_name,
-                    storage_dir=str(scenario_dir),
-                    instructions=actor_definitions[actor_name],
-                )
+        # The worker carries no instruction list: the commands below are issued
+        # from here through the library runtime.
+        worker = Actor(
+            ActorConfig(
+                name="filesystem_worker",
+                storage_dir=str(scenario_dir),
             )
-            for actor_name in schema["actors"]
-        ]
+        )
         store = Store()
         executor = build_executor(workspace_root, provider)
         interpreter = Interpreter(
-            actors,
-            main_actor_name=schema["actors"][0],
+            [worker],
+            main_actor_name=worker.name,
             store=store,
             agent_executor=executor,
             agent_root=workspace_root,
         )
+        runtime = Runtime(interpreter, start_actor_name=worker.name)
 
-        while interpreter.exec_current() != -1:
-            pass
+        # A `system` prompt is read exactly as given, so pass a full path.
+        runtime.cmd_exec(
+            "system",
+            prompt=str(scenario_dir / "filesystem_worker_system.txt"),
+        )
+        runtime.cmd_exec(
+            "agent",
+            profile="filesystem-demo",
+            prompt="Read notes.txt and write a concise summary to summary.txt.",
+            workspace=".",
+            tools=["read_file", "write_file"],
+            request_limit=3,
+            tool_call_limit=2,
+            store="filesystem-answer",
+            trace_store="filesystem-trace",
+        )
 
         trace = store.get("filesystem-trace")
         summary_path = workspace_root / "summary.txt"

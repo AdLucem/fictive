@@ -1,0 +1,5 @@
+The continuity check found:
+
+{INPUT_FROM}
+
+Write one citation per claim, in the form "claim — source".
