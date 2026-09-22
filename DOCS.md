@@ -52,23 +52,14 @@ following rules:
    - Exceptions: `workspace` on an `agent` command is never path-resolved;
      `"var:key"` strings are store lookups, not paths.
 
-4. **JSON chat mode adds two rules** (`run_chat` only):
-   - The main actor must reach an `input-from` command with `human_prompt`
-     set (`""` counts, `null` does not) — this is where control hands off to
-     the human reader. Without one, a turn runs to exit or hits the 400-step
-     cap.
-   - Never end an actor's instruction list on `run-actor` — end it with
-     `exit`. Ending on `run-actor` makes the caller restart from step 0 once
-     the callee returns, instead of continuing normally.
-
-5. **Display name**: the directory's own name, unless it is literally named
+4. **Display name**: the directory's own name, unless it is literally named
    `scenario`, in which case the parent directory's name is used
    (`examples/ui_demo/scenario` → `ui_demo`).
 
-6. **Session files live outside the scenario**, under `--storage-dir` — a
+5. **Session files live outside the scenario**, under `--storage-dir` — a
    scenario directory is read-only at runtime.
 
-7. A `"scorer"` actor type always enforces the default `SCORE: [1-5]` output
+6. A `"scorer"` actor type always enforces the default `SCORE: [1-5]` output
    regex; `actor_output_formats` never reaches it, so a weak/mock model is
    guaranteed to fail as a scorer. Use a plain actor (as `ui_demo` does for
    its critic) unless a real model backs it.
@@ -210,46 +201,40 @@ while True:
 
 Saved sessions are stored in `~/.local_chatlogs/conversations/<session_id>.json` by default, where session IDs follow the format `YYYYMMDDTHHMMSSZ-random8`. The session file contains the complete interpreter state (actors, store, callstack, etc.).
 
-### Backward Compatibility
-
-Scenarios without registered commands work unchanged. Inputs starting with `/` are treated as normal conversation when no commands are registered.
-
 ### Commands over HTTP
 
-Commands are dispatched inside `ask`, so they work the same in the web UI as in
-a terminal: a message beginning with `/` is consumed by its handler and the flow
-is asked for the reader's answer again. What a handler prints is captured and
-shown in the transcript as a step rather than going only to the server's
-terminal. `CommandRestart` (what `/load` raises) rebuilds the flow generator
-against the restored state, and `CommandExit` finishes the session.
+Commands are dispatched inside `ask`, so they work the same in the web UI as in a terminal: a message beginning with `/` is consumed by its handler and the flow is asked for the reader's answer again. What a handler prints is captured and
+shown in the transcript as a step rather than going only to the server's terminal. `CommandRestart` (what `/load` raises) rebuilds the flow generator against the restored state, and `CommandExit` finishes the session.
 
 ## Web UI
 
-A browser front end for playing a scenario as a conversation. The main actor's
-visible generations are the chat; every actor a flow calls appears inline as an
-expandable bar, nested at its depth on the interpreter callstack and drawn five
-levels deep. Opening a bar shows that called actor's own commands -- its system
-prompt, what it generated, the store variable it fills -- so a scene's called
-flows stay readable without leaving the conversation.
+A browser front end for playing a scenario as a conversation. The main actor's visible generations are the chat:
 
-The backend (`fictive/web/`) runs a flow, not an instruction list. A flow is
-already suspendable at exactly the points that need a human answer, so there is
-no stepping loop and nothing to move off stdin: the backend holds the flow
-generator between requests, `next(flow)` runs it up to the first
-`InputRequest`, and each `POST` sends the reader's answer in and runs to the
-next one. One request is therefore one whole turn, including every actor that
-turn calls.
 
-Two things a flow says explicitly are what the chat view is built on:
-`generate(visible=True)` marks the one generation the reader should see, and
-`ask(..., content=False)` marks a prompt as a bare turn-taking cue -- a terminal
-prints it, the web UI shows its own input box instead.
+```python
+runtime.generate(prompt="sample_prompt_file.txt", visible=True)
+```
+
+Every actor a flow calls appears inline as an
+expandable bar- i.e: every `call_actor` function opens an expandable bar within the parent chat.
+
+```python
+yield from call_actor(runtime, "actor_name")
+```
+
+Note that the called actors in the UI nest only five levels deep. You can nest `call_actor` statements deeper and it'll run, it just won't show in the UI.
+
+
+The backend (`fictive/web/`) runs a flow. A flow suspends when it needs a human answer. `next(flow)` runs the flow up to the first `InputRequest`. In the web interface, instead of waiting on a `yield from ask(...)` statement, the flow waits to receive a `POST` request from the UI.
+
+
+Two things that are required within a `flow` function for the Web UI to work:
+- `generate(visible=True)` marks the one generation the reader should see
+- `ask(..., content=False)` marks a prompt as a human input cue -- a terminal prints it, the web UI shows its own input box instead.
 
 ### Writing a scenario for the web UI
 
-`--scenario` takes a Python module: a `.py` file, or a directory containing
-`fictive_scenario.py`. The module answers a small contract, and the backend
-builds the actors itself so one pipeline chosen on the command line serves the
+`--scenario` takes a Python module: a `.py` file, or a directory containing `fictive_scenario.py`. The module answers a small contract, and the backend builds the actors itself so one pipeline chosen on the command line serves the
 whole scenario:
 
 ```python
@@ -261,17 +246,10 @@ def resume_flow(runtime): ...         # optional; used instead of `flow` on a re
 def register_commands(runtime): ...   # optional; see Special Commands, below
 ```
 
-`examples/evil_AI` is laid out this way: `config.py` owns the paths and the
-argument parser, `flows.py` the flows, `fictive_scenario.py` the contract above,
-and `main.py` remains the terminal entry point driving the same `flow` through
-`drive_flow`. The module's own directory goes on `sys.path` before it is
-imported, so a scenario package can keep importing its siblings flat
-(`from config import ...`). One consequence: those flat names are global, so one
+`examples/evil_AI` is laid out this way: `config.py` owns the paths and the argument parser, `flows.py` the flows, `fictive_scenario.py` the contract above, and `main.py` remains the terminal entry point driving the same `flow` through `drive_flow`. The module's own directory goes on `sys.path` before it is imported, so a scenario package can keep importing its siblings flat (`from config import ...`). One consequence: those flat names are global, so one
 process serves one scenario.
 
-**Resuming.** A session file holds actor histories, the store and the callstack,
-but not a flow's position -- that lives in a Python generator. So resuming
-restores the state and starts the flow again against it. The backend sets the
+**Resuming.** A session file holds actor histories, the store and the callstack, but not a flow's position -- that lives in a Python generator. So resuming restores the state and starts the flow again against it. The backend sets the
 store variable `RESUMED_STORE_KEY` (`"_fictive_resumed"`) first, so a flow can
 skip its own prologue rather than narrating the opening a second time:
 

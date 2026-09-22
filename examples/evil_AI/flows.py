@@ -132,10 +132,7 @@ def helper_flow(runtime: Runtime, from_human: bool = False):
 def flow(runtime: Runtime):
     """The main scene: open the roleplay, then loop over conversation turns.
 
-    The entry flow the web backend and `main.py` both drive. Its prologue is
-    skipped on a resume: a restored session already holds the opening narration,
-    and generating it again would put a second opening at the top of a
-    conversation that has moved on.
+    The entry flow that the web backend and `main.py` both drive. Its prologue is skipped on a resume: a restored session already holds the opening narration, and generating it again would put a second opening at the top of a conversation that has moved on.
     """
 
     runtime.system(SCENARIO_DIR / "generator_system.txt")
