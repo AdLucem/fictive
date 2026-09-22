@@ -153,6 +153,56 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .bubble-row { display: flex; justify-content: flex-end; }
 
+/* ------------------------------------------- rewriting a reader message */
+
+/* The actions sit to the left of the bubble and only appear on hover or
+   keyboard focus, so a transcript being read stays a transcript. `focus-within`
+   is what keeps them reachable by tab. */
+.bubble-row--actionable { align-items: flex-end; gap: 8px; }
+.bubble-actions {
+  display: flex; gap: 4px; padding-bottom: 4px;
+  opacity: 0; transition: opacity 120ms ease;
+}
+.bubble-row--actionable:hover .bubble-actions,
+.bubble-row--actionable:focus-within .bubble-actions { opacity: 1; }
+
+.bubble-action {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--outline-variant); border-radius: 14px;
+  background: transparent; color: var(--on-surface-variant);
+  font-family: var(--sans); font-size: 12px; font-weight: 500; white-space: nowrap;
+  cursor: pointer;
+}
+.bubble-action:hover:not(:disabled) { background: var(--level-2); color: var(--on-surface); }
+.bubble-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.rewrite {
+  width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px 10px; border-radius: 16px 16px 4px 16px;
+  background: var(--level-2); border: 1px solid var(--primary);
+}
+.rewrite__field {
+  width: 100%; resize: vertical; border: 0; background: transparent;
+  color: var(--on-surface); font-family: var(--sans); font-size: 16px; line-height: 1.5;
+}
+.rewrite__field:focus { outline: none; }
+.rewrite__note { margin: 0; font-size: 12px; color: var(--muted); }
+.rewrite__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.rewrite__hint { font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: right; }
+
+.button-text {
+  height: 32px; padding: 0 12px; border: 0; border-radius: 16px;
+  background: transparent; color: var(--primary);
+  font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.button-text:hover { background: var(--level-3); }
+.button-filled {
+  height: 32px; padding: 0 16px; border: 0; border-radius: 16px;
+  background: var(--primary); color: var(--on-primary);
+  font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.button-filled:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .speaker { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .speaker__avatar {
   width: 24px; height: 24px; border-radius: 12px; background: var(--primary); color: var(--on-primary);

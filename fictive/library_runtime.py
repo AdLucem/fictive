@@ -126,6 +126,13 @@ class InputRequest:
 Flow = Generator[InputRequest, str, Any]
 
 
+# A session file holds actor histories, the store and the callstack -- not a
+# flow's position, which lives in a Python generator. So a host that resumes a
+# saved session has to start a flow again, and sets this store variable first so
+# a flow can tell a resume from a fresh start and skip its own prologue.
+RESUMED_STORE_KEY = "_fictive_resumed"
+
+
 class Runtime:
     """Execute interpreter commands from Python, one call at a time.
 

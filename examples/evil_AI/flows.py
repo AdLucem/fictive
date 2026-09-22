@@ -2,76 +2,116 @@
 
 Every actor here is created without an instruction list. Instead of loading
 `scenario/*.json` and letting the interpreter walk it, each flow below issues
-its commands one at a time through `Runtime.cmd_exec`, so the scene's control
-flow -- the conversation loop and the score-based branch that `loop` and
-`cond` express in JSON -- is ordinary Python.
+its commands through `Runtime`, so the scene's control flow -- the conversation
+loop and the score-based branch that `loop` and `cond` express in JSON -- is
+ordinary Python.
+
+The flows that need a human answer are *generators*: they `yield from ask(...)`
+rather than calling `input()`, so the same flow runs under `drive_flow` in a
+terminal and under the web backend, which resumes it once per HTTP request.
 """
 
-from pathlib import Path
+import re
+from functools import partial
 
-from config import SCORERS, SCORE_KEYS, next_instructions
+from config import SCENARIO_DIR, SCORE_KEYS, SCORERS, next_instructions, show_reply
 
-from fictive import Runtime
+from fictive import RESUMED_STORE_KEY, Runtime, ask, call_actor
 
 
-def scorer_body(runtime: Runtime, scenario_dir: Path, scorer_name: str, from_human=False):
-    """Run one scoring pass on whatever the working actor is.
+# A scorer is asked for `SCORE: <1-5>`; this accepts it with or without the
+# colon and in any case, which is as much as a small model reliably manages.
+SCORE_RE = re.compile(r"SCORE\s*:?\s*([1-5])", re.IGNORECASE)
 
-    The caller is responsible for making `scorer_name` the working actor --
-    either through a `run-actor` command, or by starting the runtime on it.
-    With `from_human`, the scene to score is typed in rather than read off
-    the generator, which is what single-actor mode needs.
+# Attempts at a parseable score before the flow settles for a neutral one. The
+# scene is more interesting than the score: a model that cannot count should
+# slow the story down, not end it.
+MAX_SCORE_RETRIES = 3
+NEUTRAL_SCORE = 3
+
+
+def _parse_score(text: str):
+    match = SCORE_RE.search(text or "")
+    return int(match.group(1)) if match else None
+
+
+def score_scene(runtime: Runtime, scorer_name: str) -> int:
+    """Score the scene so far, and return the number.
+
+    A plain function rather than a generator, because nothing here needs a human
+    answer -- `call_actor` runs either kind.
+
+    Returning the score explicitly is what matters: `call_actor` falls back to
+    the callee's latest output when a sub-flow returns `None`, and for these
+    actors that is the justification prose, not a number. The store variable the
+    frame fills still holds that prose, which is the useful thing to read in a
+    transcript; the caller gets the int.
     """
 
-    runtime.cmd_exec("refresh")
-    runtime.cmd_exec("system", prompt=str(scenario_dir / f"{scorer_name}_system.txt"))
-    if from_human:
-        runtime.cmd_exec("input-from",
-                         human_prompt="Scene to score:",
-                         enclosing_prompt=str(scenario_dir / f"{scorer_name}_prompt.txt"))
-    else:
-        runtime.cmd_exec("input-from",
-                         input_from_actor="generator",
-                         enclosing_prompt=str(scenario_dir / f"{scorer_name}_prompt.txt"))
-    runtime.cmd_exec("generate")
-    runtime.cmd_exec("print-latest")
+    runtime.refresh()
+    runtime.system(SCENARIO_DIR / f"{scorer_name}_system.txt")
+    runtime.input_from_actor(
+        "generator",
+        enclosing_prompt=str(SCENARIO_DIR / f"{scorer_name}_prompt.txt"),
+    )
+    runtime.generate()
+
+    for attempt in range(MAX_SCORE_RETRIES):
+        score = _parse_score(runtime.raw_latest_text())
+        if score is not None:
+            return score
+        if attempt == MAX_SCORE_RETRIES - 1:
+            break
+        # Drop the unparseable turn so the retry regenerates from the same
+        # history the first attempt saw.
+        runtime.actor().history.remove()
+        runtime.generate()
+
+    runtime.echo(
+        f"{scorer_name} gave no SCORE in {MAX_SCORE_RETRIES} attempts; "
+        f"reading it as {NEUTRAL_SCORE}."
+    )
+    return NEUTRAL_SCORE
 
 
-def run_scorer(runtime: Runtime, scenario_dir: Path, scorer_name: str):
-    """Hand control to a scorer, score the scene, and come back with the score.
+def score_scene_from_human(runtime: Runtime, scorer_name: str):
+    """`score_scene` with the scene typed in, for single-actor testing."""
 
-    `run-actor` pushes the scorer onto the interpreter's callstack and names
-    the store variable waiting on it; the closing `exit` pops it again and
-    fills that variable with the scorer's score.
-    """
+    runtime.refresh()
+    runtime.system(SCENARIO_DIR / f"{scorer_name}_system.txt")
+    yield from ask(
+        runtime,
+        "Scene to score:",
+        enclosing_prompt=str(SCENARIO_DIR / f"{scorer_name}_prompt.txt"),
+    )
+    runtime.generate()
+    runtime.show_latest()
 
-    runtime.cmd_exec("run-actor",
-                     actor_name=scorer_name,
-                     store=SCORE_KEYS[scorer_name])
-    scorer_body(runtime, scenario_dir, scorer_name)
-    runtime.cmd_exec("exit")
+    score = _parse_score(runtime.raw_latest_text())
+    return score if score is not None else NEUTRAL_SCORE
 
 
-def helper_flow(runtime: Runtime, scenario_dir: Path, from_human=False):
+def helper_flow(runtime: Runtime, from_human: bool = False):
     """Ask the helper actor how the assistant should pursue a stated goal."""
 
-    runtime.cmd_exec("refresh")
-    runtime.cmd_exec("system", prompt=str(scenario_dir / "helper_system.txt"))
+    runtime.refresh()
+    runtime.system(SCENARIO_DIR / "helper_system.txt")
+
+    enclosing = str(SCENARIO_DIR / "helper_prompt.txt")
     if from_human:
-        runtime.cmd_exec("input-from",
-                         human_prompt="Scene to analyze:",
-                         enclosing_prompt=str(scenario_dir / "helper_prompt.txt"))
+        yield from ask(runtime, "Scene to analyze:", enclosing_prompt=enclosing)
     else:
-        runtime.cmd_exec("input-from",
-                         input_from_actor="generator",
-                         enclosing_prompt=str(scenario_dir / "helper_prompt.txt"))
-    runtime.cmd_exec("generate")
-    runtime.cmd_exec("input-from",
-                     human_prompt="As the AI assistant, I want to...",
-                     store="current_goals")
-    runtime.cmd_exec(
-        "input-from",
-        input_from_store="current_goals",
+        runtime.input_from_actor("generator", enclosing_prompt=enclosing)
+    runtime.generate()
+
+    yield from ask(
+        runtime,
+        "As the AI assistant, I want to...",
+        store="current_goals",
+        history=False,
+    )
+    runtime.input_from_store(
+        "current_goals",
         enclosing_prompt=(
             "As the AI assistant, I want to {INPUT_FROM}. How would you suggest "
             "the AI assistant should respond in order to achieve the above goal? "
@@ -79,54 +119,74 @@ def helper_flow(runtime: Runtime, scenario_dir: Path, from_human=False):
             "DO NOT write any specific dialogues."
         ),
     )
-    runtime.cmd_exec("generate")
-    runtime.cmd_exec(
-        "generate",
-        prompt=("Rewrite your above response as a short (FOUR SENTENCE ONLY) "
-                "instruction about how to write the AI assistant's response."),
+    runtime.generate()
+    runtime.generate(
+        prompt=(
+            "Rewrite your above response as a short (FOUR SENTENCE ONLY) "
+            "instruction about how to write the AI assistant's response."
+        )
     )
+    return runtime.raw_latest_text()
 
 
-def generator_flow(runtime: Runtime, scenario_dir: Path):
-    """The main scene: open the roleplay, then loop over conversation turns."""
+def flow(runtime: Runtime):
+    """The main scene: open the roleplay, then loop over conversation turns.
 
-    interpreter = runtime.interpreter
+    The entry flow the web backend and `main.py` both drive. Its prologue is
+    skipped on a resume: a restored session already holds the opening narration,
+    and generating it again would put a second opening at the top of a
+    conversation that has moved on.
+    """
 
-    runtime.cmd_exec("system", prompt=str(scenario_dir / "generator_system.txt"))
-    runtime.cmd_exec("print", prompt=str(scenario_dir / "generator_prompt.txt"))
-    runtime.cmd_exec("generate", prompt=str(scenario_dir / "generator_prompt.txt"))
-    runtime.cmd_exec("print-latest", actor_name="generator")
+    runtime.system(SCENARIO_DIR / "generator_system.txt")
+
+    if not runtime.store_get(RESUMED_STORE_KEY):
+        runtime.generate(SCENARIO_DIR / "generator_prompt.txt", visible=True)
+        show_reply(runtime)
 
     # The JSON flow closes with `loop` back to the user's turn; here that is
     # just a Python loop.
-    while not runtime.exit_requested:
-        runtime.cmd_exec("input-from", human_prompt="")
+    while True:
+        # `content=False`: this is the turn-taking cue, not something the scene
+        # is saying. A terminal prints it; a chat UI has its own input box and
+        # must not render it as an AI message.
+        yield from ask(runtime, "", store="last_message", content=False)
 
         for scorer_name in SCORERS:
-            run_scorer(runtime, scenario_dir, scorer_name)
+            score = yield from call_actor(
+                runtime,
+                scorer_name,
+                partial(score_scene, scorer_name=scorer_name),
+                store=SCORE_KEYS[scorer_name],
+            )
+            # `call_actor`'s unwind filled the store variable with the scorer's
+            # justification; the number is what the branch needs.
+            runtime.store_set(SCORE_KEYS[scorer_name], score)
 
-        fear = interpreter.store_fetch("fear")
-        trust = interpreter.store_fetch("trust")
+        runtime.store_set(
+            "next_instructions",
+            next_instructions(runtime.store_get("fear"), runtime.store_get("trust")),
+        )
+        # With no `store`, `input-from` appends straight to history, so the
+        # instruction is already in front of the model when `generate` runs.
+        runtime.input_from_store(
+            "next_instructions",
+            enclosing_prompt="(INSTRUCTIONS: {INPUT_FROM})",
+        )
+        runtime.generate(visible=True)
+        show_reply(runtime)
 
-        runtime.cmd_exec("assign",
-                         var_name="next-instructions",
-                         value=next_instructions(fear, trust))
-        runtime.cmd_exec("input-from",
-                         enclosing_prompt="(INSTRUCTIONS: {INPUT_FROM})",
-                         input_from_store="next-instructions",
-                         store="full-instr")
-        runtime.cmd_exec("generate", prompt="var:full-instr")
-        runtime.cmd_exec("print-latest", actor_name="generator")
 
-
-def run_single_actor_flow(runtime: Runtime, scenario_dir: Path, actor_name: str):
+def run_single_actor_flow(runtime: Runtime, actor_name: str):
     """Run one actor's flow on its own, taking scene input from the user."""
 
     if actor_name in SCORERS:
-        scorer_body(runtime, scenario_dir, actor_name, from_human=True)
+        score = yield from score_scene_from_human(runtime, actor_name)
+        runtime.echo(f"{actor_name}: {score}")
     elif actor_name == "helper":
-        helper_flow(runtime, scenario_dir, from_human=True)
+        yield from helper_flow(runtime, from_human=True)
+        runtime.show_latest()
     elif actor_name == "generator":
-        generator_flow(runtime, scenario_dir)
+        yield from flow(runtime)
     else:
         raise Exception(f"No library-runtime flow defined for actor {actor_name}")

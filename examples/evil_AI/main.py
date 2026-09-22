@@ -1,14 +1,18 @@
-"""The `evil_AI` scenario
+"""The `evil_AI` scenario, played in a terminal.
 
-Each flow in `flows.py` issues its commands one at a time through `Runtime.cmd_exec`. `flows.py` define the scene's control flows, while `config.py` defines names, variables etc.
+`flows.py` defines the scene's control flow as Python against `fictive.Runtime`,
+while `config.py` defines names, paths and arguments. The entry flow is a
+generator: it yields wherever it needs a human answer, and `drive_flow` supplies
+those answers from stdin. The web backend drives the same generator itself, one
+resume per request -- see `fictive_scenario.py`.
 """
 
 from pathlib import Path
 
 from config import build_actors, main_args_parser
-from flows import generator_flow, run_single_actor_flow
+from flows import flow, run_single_actor_flow
 
-from fictive import Interpreter, Runtime
+from fictive import CommandExit, CommandRestart, Interpreter, Runtime, drive_flow
 from llm_utils import pipeline_from_config, pipeline_config_from_args
 
 
@@ -35,7 +39,7 @@ if __name__ == "__main__":
         runtime = Runtime(intp,
                           start_actor_name=args.single_actor,
                           mode="single-actor")
-        run_single_actor_flow(runtime, scenario_dir, args.single_actor)
+        drive_flow(run_single_actor_flow(runtime, args.single_actor))
     else:
         intp = Interpreter(actors, main_actor_name="generator")
         # In "debug" mode the runtime stops for a debugger command before
@@ -43,4 +47,17 @@ if __name__ == "__main__":
         runtime = Runtime(intp, start_actor_name="generator", mode=args.mode)
         if args.mode == "debug":
             print(runtime.HELP_TEXT)
-        generator_flow(runtime, scenario_dir)
+
+        # A registered slash command can ask for the flow to restart (after a
+        # `/load`, say) or to exit; both arrive as exceptions out of `ask`.
+        while True:
+            try:
+                drive_flow(flow(runtime))
+                break
+            except CommandRestart:
+                continue
+            except CommandExit:
+                break
+            except KeyboardInterrupt:
+                print("\nInterrupted.")
+                break

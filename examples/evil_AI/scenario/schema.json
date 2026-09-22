@@ -2,7 +2,12 @@
     "actors": [
         "generator", "helper", "fear_scorer", "trust_scorer"
     ],
-    "names": 
+    "actor_types": {
+        "generator": "generator",
+        "fear_scorer": "scorer",
+        "trust_scorer": "scorer"
+    },
+    "names":
         {"user": "User",
          "assistant": "AI Assistant"},
     "actor_output_formats":

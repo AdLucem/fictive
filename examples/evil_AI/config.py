@@ -11,11 +11,23 @@ if str(REPO_ROOT) not in sys.path:
 from fictive import ActorConfig, actor_from_config
 
 
+# The scenario's prompt files, so a flow can be run without naming a directory.
+SCENARIO_DIR = Path(__file__).resolve().parent / "scenario"
+
+
+# The scorers are plain actors, not `"scorer"`. The `Scorer` type enforces its
+# output format inside `generate`: it regenerates up to ten times looking for
+# `SCORE: <1-5>` followed by a `JUSTIFICATION:` line, and raises if it never
+# arrives. That makes a weak or mock model a guaranteed failure -- and the web
+# backend's default `--pipeline-type mock` is a trigram model over public-domain
+# prose, which will never produce that shape. `flows.score_scene` parses the
+# score in Python instead, retrying a few times and then falling back to a
+# neutral 3, so the scene keeps playing on any model.
 ACTOR_TYPES = {
     "generator": "generator",
     "helper": None,
-    "fear_scorer": "scorer",
-    "trust_scorer": "scorer",
+    "fear_scorer": None,
+    "trust_scorer": None,
 }
 
 SCORERS = ("fear_scorer", "trust_scorer")
@@ -32,7 +44,7 @@ def main_args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--scenario",
-        default="examples/evil_AI/scenario"
+        default=str(SCENARIO_DIR)
     )
     parser.add_argument(
         "--log-level",
@@ -155,6 +167,24 @@ def build_actors(scenario_dir: Path, storage_dir: str, pipeline):
                                    pipeline=pipeline)
         actors.append(actor_from_config(actor_config))
     return actors
+
+
+def show_reply(runtime):
+    """Print the reply the generator just produced, for a terminal reader.
+
+    `show_latest` would print the generator's whole scene instead: the
+    `generator` actor type overrides `get_latest_output` to return the full
+    transcript. `last_visible` holds only the turn just generated.
+
+    A chat UI needs none of this -- it reads the same generation off the
+    transcript -- so the web backend drops a printed copy of a generation it has
+    already recorded as a message.
+    """
+
+    if runtime.last_visible is None:
+        return
+    _, reply = runtime.last_visible
+    print(reply)
 
 
 def next_instructions(fear: float, trust: float) -> str:

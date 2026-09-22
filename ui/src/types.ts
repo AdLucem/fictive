@@ -81,6 +81,16 @@ export interface Session {
   exit_message: string | null;
   error: string | null;
   saved_path: string | null;
+  resumed_from: string | null;
+  forked_from: string | null;
+  forked_at: number | null;
+  /**
+   * The `seq` of every reader message that can be rewritten or forked from.
+   * Session-level rather than a flag per node: it reflects the checkpoints the
+   * backend still holds, so a resumed session's messages are real messages with
+   * nothing to branch at.
+   */
+  branch_points: number[];
   turns: TranscriptNode[];
   store: StoreRow[];
   step_pointers: Record<string, number>;

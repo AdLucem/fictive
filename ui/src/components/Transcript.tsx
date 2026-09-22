@@ -1,15 +1,9 @@
-import { useEffect, useRef } from "react";
-import type { Session, TranscriptNode } from "../types";
+import { useEffect, useMemo, useRef } from "react";
+import type { MessageNode, Session } from "../types";
 import { FlowBar, Step } from "./FlowBar";
+import { ReaderMessage } from "./ReaderMessage";
 
-function Message({ node, mainActor }: { node: Extract<TranscriptNode, { kind: "message" }>; mainActor: string }) {
-  if (node.role === "user") {
-    return (
-      <div className="bubble-row">
-        <div className="bubble">{node.text}</div>
-      </div>
-    );
-  }
+function Message({ node, mainActor }: { node: MessageNode; mainActor: string }) {
   return (
     <div>
       <div className="speaker">
@@ -25,19 +19,51 @@ function Message({ node, mainActor }: { node: Extract<TranscriptNode, { kind: "m
   );
 }
 
-export function Transcript({ session, busy }: { session: Session; busy: boolean }) {
+interface Props {
+  session: Session;
+  busy: boolean;
+  onRewrite: (messageSeq: number, text: string) => void;
+  onFork: (messageSeq: number, text: string) => void;
+}
+
+export function Transcript({ session, busy, onRewrite, onFork }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [session.turns.length, busy]);
 
+  const branchable = useMemo(() => new Set(session.branch_points), [session.branch_points]);
+
+  // How many reader messages come after each one: what a rewrite there would
+  // discard, and so which of rewrite and fork the reader actually wants.
+  const laterMessages = useMemo(() => {
+    const counts = new Map<number, number>();
+    const readerSeqs = session.turns
+      .filter((node): node is MessageNode => node.kind === "message" && node.role === "user")
+      .map((node) => node.seq);
+    readerSeqs.forEach((seq, index) => counts.set(seq, readerSeqs.length - 1 - index));
+    return counts;
+  }, [session.turns]);
+
   return (
     <div className="transcript">
       <div className="transcript__inner">
         {session.turns.map((node) =>
           node.kind === "message" ? (
-            <Message key={node.seq} node={node} mainActor={session.main_actor} />
+            node.role === "user" ? (
+              <ReaderMessage
+                key={node.seq}
+                node={node}
+                branchable={branchable.has(node.seq)}
+                laterMessages={laterMessages.get(node.seq) ?? 0}
+                busy={busy}
+                onRewrite={onRewrite}
+                onFork={onFork}
+              />
+            ) : (
+              <Message key={node.seq} node={node} mainActor={session.main_actor} />
+            )
           ) : node.kind === "flow" ? (
             <FlowBar key={node.seq} node={node} />
           ) : (

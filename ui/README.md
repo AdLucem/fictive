@@ -1,14 +1,18 @@
 # `ui/` — a chat front end for fictive scenarios
 
 A React app for running a scenario the way a reader sees it: the main actor's
-generations are the conversation, and every other actor the scenario calls
-appears inline as an expandable bar.
+visible generations are the conversation, and every other actor the scenario
+calls appears inline as an expandable bar.
 
 A bar is not a UI metaphor. Each one is a `run-actor` frame on the
 interpreter's callstack, labelled with the command that opened it and the store
-variable its `exit` fills. Bars nest because frames nest, and the nesting is
-drawn to five levels — below that a frame is counted and named rather than
-drawn, with a link back to the actor it belongs to.
+variable it fills when control returns. Bars nest because frames nest, and the
+nesting is drawn to five levels — below that a frame is counted and named
+rather than drawn, with a link back to the actor it belongs to.
+
+The backend runs a scenario written as a Python flow against `fictive.Runtime`,
+so `--scenario` below names a scenario module rather than a directory of JSON —
+see `DOCS.md` for the contract a module answers.
 
 ## Running it
 
@@ -19,7 +23,7 @@ Two processes in development, one in production.
 ```bash
 git submodule update --init          # llm-utils; fictive/_bootstrap.py puts it on sys.path
 uv pip install --python .venv/bin/python fastapi "uvicorn[standard]"
-.venv/bin/python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
+.venv/bin/python -m fictive.web --scenario examples/evil_AI --pipeline-type mock
 ```
 
 Those two packages are the `ui-server` extra. They are installed directly
@@ -47,7 +51,7 @@ endpoint:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-python -m fictive.web --scenario examples/ui_demo/scenario \
+python -m fictive.web --scenario examples/evil_AI \
   --pipeline-type anthropic --model claude-sonnet-5
 ```
 
@@ -56,7 +60,7 @@ For an OpenAI-compatible endpoint, including OpenRouter:
 ```bash
 # key and base URL come from OPENROUTER_API_KEY / OPENROUTER_BASE_URL, in the
 # environment or a .env in the working directory
-python -m fictive.web --scenario examples/ui_demo/scenario \
+python -m fictive.web --scenario examples/evil_AI \
   --pipeline-type openai --model deepseek/deepseek-v3.2
 ```
 
@@ -98,12 +102,17 @@ Every path comes from `fictive/web/app.py`:
 | `POST` | `/api/sessions` | start a run; `{"load_session_id": "..."}` resumes a saved one |
 | `GET` | `/api/sessions/{id}` | the current transcript, store and callstack |
 | `POST` | `/api/sessions/{id}/messages` | send the reader's turn and run until the scenario asks again |
+| `POST` | `/api/sessions/{id}/rewrite` | `{"message_seq": n, "text": "..."}` — replace a reader message and run on from it |
+| `POST` | `/api/sessions/{id}/fork` | `{"message_seq": n, "text": "..."}` — branch a new session at a reader message |
 | `POST` | `/api/sessions/{id}/save` | write the session file |
 | `GET` | `/api/health` | scenario, pipeline, whether the pipeline can stream |
 
-A turn is one synchronous `POST`: the backend runs every command the turn
-reaches — including the whole nested chain of called actors — and answers with
-the updated tree. The UI shows a `running` state for the duration.
+A turn is one synchronous `POST`: the backend resumes the scenario's flow
+generator with the reader's answer, runs every command the turn reaches —
+including the whole nested chain of called actors — and answers with the updated
+tree when the flow next asks for input. The UI shows a `running` state for the
+duration. A `POST` to a session that is not waiting, or is already running a
+turn, answers `409` with a `detail` the UI shows as a snackbar.
 
 ## Layout
 
@@ -137,6 +146,37 @@ src/
   backend leaves the hook unset and a turn arrives whole. `/api/health` reports
   `streaming: false` for pipelines in that state.
 - **Resumed sessions.** A session file holds each actor's history, the store
-  and the callstack — not the flow tree, which is recorded from steps as they
-  run. Resuming rebuilds the conversation and says so; frames from before the
-  save are not in the file.
+  and the callstack — not the flow tree, and not the flow's own position, which
+  lives in a Python generator. So resuming restores the state and starts the
+  scenario's entry flow again against it. The conversation is rebuilt from the
+  main actor's history and says so; frames from before the save are not in the
+  file. A scenario avoids re-narrating its opening by branching on the store
+  variable `_fictive_resumed`, or by defining `resume_flow(runtime)`.
+- **The generic placeholder.** When `waiting_prompt` is `null` the composer
+  shows "Answer as the reader…". That is a flow asking with
+  `ask(..., content=False)`: a bare turn-taking cue, which exists because a
+  terminal has to print something before calling `input()`. This app has its own
+  input box, so it shows that instead of rendering the cue as an AI message.
+  `awaiting_input` is what says the session is waiting, never `waiting_prompt`.
+- **Step numbers are command counts.** A flow-driven actor has no instruction
+  list, so `step_pointers` and a node's `step` report how many commands that
+  actor has issued rather than a position in a list.
+- **Rewriting and forking.** Hovering a reader message reveals **Rewrite** and
+  **Fork**. Both open the message in an editor; the difference is what happens
+  to the turns after it. A rewrite runs the same session on from that message,
+  so those turns stop existing — the editor says how many will go. A fork
+  leaves the session untouched and starts a second one that shares everything
+  up to the message, which is the one to use when the later turns are worth
+  keeping. The view follows the fork; the original stays in the rail.
+
+  The buttons appear only on the messages in `session.branch_points`. The
+  backend can rewind only to a message it holds a checkpoint for, and it takes
+  those as a turn is asked for, so a session resumed from a file has real
+  messages with nothing to rewind to until it takes a turn of its own. It also
+  keeps at most `RuntimeChatSession.MAX_CHECKPOINTS` (50) of them, since each
+  one holds a copy of every actor's history. Sending a `message_seq` that is not
+  in the list answers `404`; either call while a turn is running answers `409`.
+
+  A rewrite works on a session whose flow has finished or died, which is the
+  way out of a failed turn: going back throws the old flow away and starts a
+  fresh one either way, so there is nothing for a dead generator to spoil.

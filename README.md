@@ -31,13 +31,38 @@ Make sure your `gcc` compiler is up to date!
 
 If you want to run models from the `Qwen3.5` series, `qwen3_requirements.txt` has a set of instructions that work.
 
+## Scenario Directories
+
+A scenario passed to `--scenario` only strictly needs one file: `schema.json`,
+naming its `actors` (plus optional `main_actor` and `actor_types`). Each actor
+listed needs a matching `<name>.json` command file alongside it, and prompt
+files can live anywhere under the directory, referenced by relative path.
+
+JSON chat mode (`run_chat`, `run_debug`) adds two rules: the main actor must
+reach an `input-from` with a `human_prompt` (even `""`) so control can hand off
+to a human reader, and an actor's command list must end on `exit`, never on
+`run-actor`. Neither applies to the web UI, which runs Python flows instead --
+see below.
+
+See [`SCENE_CONFIG_LANGUAGE.md`](SCENE_CONFIG_LANGUAGE.md) for the full
+command/field reference, and [`DOCS.md`](DOCS.md#scenario-directories) /
+[`REPOSITORY_DOCS.md`](REPOSITORY_DOCS.md#scenario-loading-requirements) for
+the complete rules, including the `"scorer"` output-format gotcha.
+
 ## Web UI
 
-Run a scenario in the browser. From the repository root:
+Run a scenario in the browser. The web backend runs a scenario written as a
+Python flow against `fictive.Runtime`, so `--scenario` names a scenario module
+-- a `.py` file, or a directory containing `fictive_scenario.py` -- rather than
+a directory of JSON. The JSON scenario format still runs under `run_chat` and
+`run_debug` (`examples/ui_demo/scenario`), just not in the browser. See
+[`DOCS.md`](DOCS.md#writing-a-scenario-for-the-web-ui) for the module contract.
+
+From the repository root:
 
 ```bash
 uv pip install --python .venv/bin/python fastapi "uvicorn[standard]"
-.venv/bin/python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
+python -m fictive.web --scenario examples/evil_AI --pipeline-type mock
 ```
 
 Those two packages are the `ui-server` extra, installed directly because the
@@ -56,7 +81,7 @@ The app is served at `http://localhost:5173`.
 `llm-utils` builds:
 
 ```bash
-python -m fictive.web --scenario examples/ui_demo/scenario \
+python -m fictive.web --scenario examples/evil_AI \
   --pipeline-type openai --model deepseek/deepseek-v3.2
 ```
 

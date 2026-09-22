@@ -73,6 +73,24 @@ export default function App() {
     void run(() => api.sendMessage(session.id, text));
   };
 
+  /** Replace a reader message in place; the turns after it are discarded. */
+  const onRewrite = (messageSeq: number, text: string) => {
+    if (!session) return;
+    void run(() => api.rewriteMessage(session.id, messageSeq, text));
+  };
+
+  /** Branch at a reader message. The response is the fork, so the view follows
+   *  it -- the original stays in the rail, one click away. */
+  const onFork = (messageSeq: number, text: string) => {
+    if (!session) return;
+    const from = session.id;
+    void run(async () => {
+      const fork = await api.forkSession(from, messageSeq, text);
+      setToast({ text: `Forked ${from} into ${fork.id}`, tone: "info" });
+      return fork;
+    });
+  };
+
   const onNew = () => void run(() => api.createSession());
 
   const onOpen = (id: string) => void run(() => api.session(id));
@@ -134,6 +152,11 @@ export default function App() {
           <span className="chip-outline">
             main actor <b>{session.main_actor}</b>
           </span>
+          {session.forked_from ? (
+            <span className="chip-outline">
+              forked from <b>{session.forked_from}</b>
+            </span>
+          ) : null}
           {busy ? (
             <span className="status status--running">
               <span className="status__dot" />
@@ -163,7 +186,7 @@ export default function App() {
           </button>
         </header>
 
-        <Transcript session={session} busy={busy} />
+        <Transcript session={session} busy={busy} onRewrite={onRewrite} onFork={onFork} />
 
         {toast ? (
           <div className={`snackbar${toast.tone === "error" ? " snackbar--error" : ""}`} role="status">

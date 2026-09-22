@@ -36,6 +36,20 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  /** Replace one reader message; every turn after it is discarded. */
+  rewriteMessage: (id: string, messageSeq: number, text: string) =>
+    request<Session>(`/api/sessions/${id}/rewrite`, {
+      method: "POST",
+      body: JSON.stringify({ message_seq: messageSeq, text }),
+    }),
+
+  /** Branch a new session at one reader message; the original is untouched. */
+  forkSession: (id: string, messageSeq: number, text?: string) =>
+    request<Session>(`/api/sessions/${id}/fork`, {
+      method: "POST",
+      body: JSON.stringify({ message_seq: messageSeq, text }),
+    }),
+
   saveSession: (id: string) =>
     request<{ id: string; saved_path: string }>(`/api/sessions/${id}/save`, { method: "POST" }),
 };

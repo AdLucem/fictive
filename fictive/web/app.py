@@ -1,8 +1,13 @@
-"""A minimal uvicorn/FastAPI app that runs one fictive scenario in chat mode.
+"""A minimal uvicorn/FastAPI app that runs one fictive scenario as a flow.
 
-Start it with a scenario directory and a pipeline:
+Start it with a scenario module and a pipeline:
 
-    python -m fictive.web --scenario examples/ui_demo/scenario --pipeline-type mock
+    python -m fictive.web --scenario examples/evil_AI --pipeline-type mock
+
+The scenario is Python written against `fictive.Runtime`: a module answering the
+contract in `fictive/web/scenario.py`, not a directory of JSON instruction
+lists. One module is imported at startup and every session drives its entry
+flow.
 
 Every route is under `/api`. A built UI at `ui/dist` is served at `/`, so one
 process can serve both; during development the Vite dev server proxies here
@@ -25,10 +30,17 @@ from pydantic import BaseModel
 
 from llm_utils import PipelineConfig, pipeline_from_config
 
-from .chat import ChatSession, ScenarioSpec
+from .chat import (
+    BranchPointUnknown,
+    RuntimeChatSession,
+    RuntimeChatSessionError,
+    SessionBusy,
+)
+from .scenario import RuntimeScenarioSpec
+from .tree import install_tee
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_SCENARIO = REPO_ROOT / "examples" / "ui_demo" / "scenario"
+DEFAULT_SCENARIO = REPO_ROOT / "examples" / "evil_AI"
 DEFAULT_STORAGE = pathlib.Path.home() / ".fictive_logs" / "ui"
 DEFAULT_UI_DIST = REPO_ROOT / "ui" / "dist"
 
@@ -42,21 +54,43 @@ class Message(BaseModel):
     text: str
 
 
+class Rewrite(BaseModel):
+    """Replace the reader message `message_seq` and run on from there."""
+
+    message_seq: int
+    text: str
+
+
+class Fork(BaseModel):
+    """Branch a new session at the reader message `message_seq`.
+
+    `text` replaces that message in the branch. Left out, the fork parks where
+    the original was asked for it and the reader answers through the composer.
+    """
+
+    message_seq: int
+    text: Optional[str] = None
+    title: Optional[str] = None
+
+
 def create_app(
-    scenario_dir: str | pathlib.Path = DEFAULT_SCENARIO,
+    scenario: str | pathlib.Path = DEFAULT_SCENARIO,
     storage_dir: str | pathlib.Path = DEFAULT_STORAGE,
     pipeline_type: str = "mock",
     model: str = "mock",
     ui_dist: str | pathlib.Path = DEFAULT_UI_DIST,
     **pipeline_kwargs,
 ) -> FastAPI:
-    spec = ScenarioSpec(scenario_dir)
+    spec = RuntimeScenarioSpec(scenario)
     storage_dir = pathlib.Path(storage_dir)
     pipeline = pipeline_from_config(
         PipelineConfig(model=model, pipeline_type=pipeline_type, **pipeline_kwargs)
     )
+    # Scene commands say what they did by printing. One tee lets a turn collect
+    # its own output without any thread stealing another's stdout.
+    tee = install_tee()
 
-    sessions: dict[str, ChatSession] = {}
+    sessions: dict[str, RuntimeChatSession] = {}
 
     app = FastAPI(title="fictive", version="0.1.0")
     # The UI is served from this process in production and from the Vite dev
@@ -68,7 +102,7 @@ def create_app(
         allow_headers=["*"],
     )
 
-    def get_session(session_id: str) -> ChatSession:
+    def get_session(session_id: str) -> RuntimeChatSession:
         session = sessions.get(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail=f"No session {session_id}")
@@ -137,20 +171,18 @@ def create_app(
     @app.post("/api/sessions")
     def create_session(body: NewSession | None = None) -> dict:
         body = body or NewSession()
-        session = ChatSession(spec, pipeline, storage_dir, title=body.title)
+        session = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
         sessions[session.id] = session
-        if body.load_session_id:
-            try:
-                session.interpreter.load_session(session_id=body.load_session_id)
-            except Exception as exc:  # a bad or foreign session file
-                sessions.pop(session.id, None)
-                raise HTTPException(status_code=400, detail=f"Could not load: {exc}") from exc
-            session.status = "running"
-            session.title = f"Resumed {body.load_session_id}"
-            session.rebuild_from_history()
-            session.advance()
-        else:
-            session.start()
+        try:
+            if body.load_session_id:
+                # A session file holds no flow position, so resuming restores the
+                # state and starts the entry flow again against it.
+                session.resume(body.load_session_id)
+            else:
+                session.start()
+        except Exception as exc:  # a bad or foreign session file
+            sessions.pop(session.id, None)
+            raise HTTPException(status_code=400, detail=f"Could not start: {exc}") from exc
         return session.to_json()
 
     @app.get("/api/sessions/{session_id}")
@@ -165,8 +197,46 @@ def create_app(
                 status_code=409,
                 detail=f"Session {session_id} is {session.status}, not waiting for input",
             )
-        session.send_input(body.text)
+        try:
+            session.send_input(body.text)
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return session.to_json()
+
+    @app.post("/api/sessions/{session_id}/rewrite")
+    def rewrite_message(session_id: str, body: Rewrite) -> dict:
+        session = get_session(session_id)
+        try:
+            session.rewrite(body.message_seq, body.text)
+        except BranchPointUnknown as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RuntimeChatSessionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return session.to_json()
+
+    @app.post("/api/sessions/{session_id}/fork")
+    def fork_session(session_id: str, body: Fork) -> dict:
+        source = get_session(session_id)
+        # The branch point is checked before a session is built, so a bad
+        # message_seq does not leave an empty session in the index.
+        try:
+            source.checkpoint_for(body.message_seq)
+        except BranchPointUnknown as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        fork = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
+        sessions[fork.id] = fork
+        try:
+            fork.fork_from(source, body.message_seq, body.text)
+        except (RuntimeChatSessionError, SessionBusy) as exc:
+            sessions.pop(fork.id, None)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            sessions.pop(fork.id, None)
+            raise HTTPException(status_code=400, detail=f"Could not fork: {exc}") from exc
+        return fork.to_json()
 
     @app.post("/api/sessions/{session_id}/save")
     def save_session(session_id: str) -> dict:
@@ -190,7 +260,14 @@ def create_app(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the fictive chat UI backend.")
-    parser.add_argument("--scenario", default=str(DEFAULT_SCENARIO))
+    parser.add_argument(
+        "--scenario",
+        default=str(DEFAULT_SCENARIO),
+        help=(
+            "A scenario module written against fictive.Runtime: a .py file, or a "
+            "directory containing fictive_scenario.py."
+        ),
+    )
     parser.add_argument("--storage-dir", default=str(DEFAULT_STORAGE))
     parser.add_argument(
         "--pipeline-type",
@@ -230,7 +307,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             "--pipeline-type anthropic needs an API key: set ANTHROPIC_API_KEY or pass --token."
         )
     app = create_app(
-        scenario_dir=args.scenario,
+        scenario=args.scenario,
         storage_dir=args.storage_dir,
         pipeline_type=args.pipeline_type,
         model=args.model,

@@ -131,10 +131,12 @@ helpers and SGLang integration.
 
 - `ui/`
   React (Vite + TypeScript) chat front end for a scenario, served by
-  `fictive/web/`. The main actor's generations are the conversation; every
-  actor a scenario calls appears inline as an expandable bar, one per
+  `fictive/web/`. The main actor's visible generations are the conversation;
+  every actor a flow calls appears inline as an expandable bar, one per
   `run-actor` frame on the interpreter callstack, nested to five levels and
-  counted by name below that. `ui/README.md` documents the two-process
+  counted by name below that. Hovering a reader message reveals `Rewrite` and
+  `Fork` (`ui/src/components/ReaderMessage.tsx`), offered on the messages named
+  in the session's `branch_points`. `ui/README.md` documents the two-process
   development setup and the endpoints the app calls. `npm run build` writes
   `ui/dist`, which the backend serves at `/` when it exists, so one process can
   serve both. Node dependencies are not part of the Python install.
@@ -407,39 +409,197 @@ when the server runs, so it adds no import cost to the library, and its
 dependencies (`fastapi`, `uvicorn`) live in the `ui-server` extra rather than
 in `requirements.txt`.
 
-- `web/chat.py`
-  `ScenarioSpec` loads a scenario directory once and reads `main_actor` and
-  `actor_types` out of `schema.json` -- the loader returns the schema as-is, so
-  the host still decides which `Actor` subclass each name is built with.
-  `ChatSession` is `run.run_chat` with two changes and no others: it advances
-  the same `DebuggerSession` with `Interpreter.exec_current()` until the same
-  exit checks fire, and because an HTTP request cannot block on stdin, it stops
-  *before* an `input-from` that wants a human answer instead of blocking inside
-  `Actor.prompt_user`. The answer arrives later through `send_input`, and
-  `prompt_user` -- overridden per instance, so a `Scorer` stays a `Scorer` --
-  reads it from the session.
+It runs *library-runtime* scenarios: Python flows, not JSON instruction lists.
+A flow is already suspendable at exactly the points that need a human answer,
+which is what an HTTP host needs, so there is no stepping loop here and no
+`DebuggerSession`: the backend parks the flow generator between requests, the
+way `drive_flow`'s docstring describes for a host that must not block.
 
-  While stepping, it records each step into the nested tree the UI draws: a
-  `run-actor` opens a `FlowNode` at its callstack depth, the callstack
-  shrinking closes it and reads the callee's return value out of the store, and
-  a `generate` by the main actor becomes a message rather than a step.
-  Generated text is read off raw history, not `get_latest_output()`, because a
-  `Generator` returns its whole scene from that and a `Scorer` returns a
-  number. Streaming would go through `Interpreter.on_generate_delta`, which
-  reaches the pipeline's `generate_stream`; the `llm_utils` pipelines do not
-  define one, so the hook is set only for a pipeline that has it.
+- `web/scenario.py`
+  `RuntimeScenarioSpec` imports one scenario module and validates its contract.
+  `--scenario` resolves to a `.py` file, or to `fictive_scenario.py` inside a
+  directory. Required: `MAIN_ACTOR`, `flow(runtime)`, and either `ACTOR_TYPES`
+  (name -> type, `None` for a plain `Actor`) or `ACTOR_NAMES`. Optional: `NAME`,
+  `register_commands(runtime)`, `resume_flow(runtime)`. `build_actors` builds
+  each actor with `actor_from_config` and no `instructions`, which is a
+  library-runtime actor's correct starting state, so `schema.json` and
+  `parse_scenario_config` are not involved at all.
+
+  The module's own directory goes on `sys.path` before `exec_module`, because
+  scenario packages in this repository import their siblings flat (`from config
+  import ...`) -- they are run as scripts, not installed. The cost is that those
+  flat names land in the global `sys.modules`, so one process serves one
+  scenario: two would collide on `config`. That is why `create_app` builds a
+  single spec at startup and never swaps it.
+
+- `web/tree.py`
+  The transcript: `FlowNode` (one called actor, an expandable bar), `StepNode`
+  (one command), `MessageNode` (a turn in the chat), and `TranscriptRecorder`,
+  which owns the tree, the open-frame stack and a per-actor command count. It
+  imports no `Interpreter` -- `close_flow` reads a frame's store variable
+  through an injected callable -- so `WebRuntime` can own one and the session can
+  read it without a cycle. Every mutation and `to_json()` hold one `RLock`, so a
+  `GET` cannot serialize a half-built node list, and the lock is never held
+  across a model call.
+
+  `new_assistant_text(actor, history_before)` is the one correct reader for a
+  command's output: it diffs unmerged history around the command, so it returns
+  `None` when the command generated nothing (a `system` is never mislabelled as
+  the previous generation's text) and it survives `Scorer.generate`'s
+  remove-and-regenerate loop. `get_latest_output()` would be wrong -- a
+  `Generator` returns its whole scene from it and a `Scorer` a number.
+
+  Branching: `mark()` reads the length of the top-level turn list (plus the
+  per-actor counts) as one pair, `truncate` cuts back to a mark for a rewrite in
+  place, and `prefix`/`adopt` hand a deep copy of a transcript prefix to a second
+  recorder for a fork. A length rather than a node's `seq` is the only reading of
+  "before this turn" that stays correct when the turn that followed recorded
+  nothing at all. `truncate` deliberately does not rewind the seq counter, and
+  `adopt` moves the counter past everything it inherited, so no UI keyed on `seq`
+  can confuse a replayed turn with the one it replaced.
+
+  `_TeeStdout` / `install_tee()` capture what a command printed. Several
+  commands report what they did by printing (`exec_PRINT`, `exec_PRINT_LATEST`),
+  as does `ask`'s slash-command error path and any plain Python a scenario runs
+  between commands. `contextlib.redirect_stdout` cannot be used: it swaps the
+  global `sys.stdout`, and FastAPI runs `def` handlers in a threadpool, so two
+  sessions would cross-capture and restore out of order. One tee with a
+  thread-local sink gives each thread its own buffer and still writes through,
+  so uvicorn's logging is unaffected. stderr is deliberately not teed --
+  `Interpreter.exec`'s `traceback.print_exc()` belongs in the terminal.
+
+- `web/chat.py`
+  `WebRuntime` is a `Runtime` that records every command into a
+  `TranscriptRecorder`. The hook is **`cmd_exec`, not `cmd`**: `cmd` is only
+  trace bookkeeping in front of `cmd_exec`, and a scenario may call `cmd_exec`
+  directly (the `examples/evil_AI` flows do). `Runtime.trace_hook` is no use
+  either -- it fires *before* the command runs, so it cannot carry what the
+  command produced. `mode` is hardcoded to `"chat"`, since `debug_pause` holds
+  at a `debug> ` prompt on stdin before every command.
+
+  Four `Runtime` methods reach past the interpreter and so have hooks of their
+  own. `deliver` records the reader's turn, carrying the raw answer rather than
+  the `enclosing_prompt`-wrapped text, and needs a hook because a human answer
+  never passes through `cmd_exec` at all. `return_from` closes the frame; it
+  runs inside `call_actor`'s `finally`, so it also sees an exception on its way
+  out and marks the frame `failed`, naming the exception actually propagating
+  (a pure-Python failure never reached `cmd_exec`, so this is the only place its
+  cause is visible). It also has to swallow one specific follow-on error:
+  `unwind_actor` calls `fill_variable`, and `Actor.get_latest_output` *raises*
+  for a callee that produced no assistant or system message, which inside that
+  `finally` would replace the real exception. `append` and `load_session` have
+  hooks too; `store_set` deliberately does not, because the store is re-read
+  whole on every response.
+
+  Depth comes off the recorder's open-frame stack, not the callstack, because
+  `Interpreter.unwind_actor` silently no-ops when the name it is given is not on
+  top, so the two can drift; `reconcile` puts them back in step after every
+  unwind. A `run-actor` opens a frame and is never also a step. A `generate`
+  marked `visible=True` by the main actor at depth 0 becomes a `MessageNode`;
+  everything else is a `StepNode`. A scenario that shows its replies with
+  `show_latest()` and never marks one visible still gets a conversation, through
+  a narrow `print-latest` fallback guarded on `last_visible` so it can never
+  double up; conversely, output that merely repeats the visible generation --
+  what a flow prints for the benefit of a terminal reader -- is dropped rather
+  than shown twice.
+
+  `RuntimeChatSession` holds the parked generator. `start()` runs `next(flow)`,
+  `send_input` runs `flow.send(text)`, and `_pump` is the one place a flow is
+  resumed, so every way a flow can end is handled once: a yielded
+  `InputRequest` parks it, `StopIteration` and `CommandExit` finish it,
+  `CommandRestart` (what a `/load` handler raises, and which `ask` re-raises
+  rather than swallowing) replaces the generator, and anything else is an error
+  that kills it -- a generator that has raised out cannot be resumed.
+  `MAX_COMMANDS_PER_TURN` (400) is checked in `cmd_exec` before dispatch and
+  raises `TurnBudgetExceeded`, because a generator has no equivalent of the JSON
+  path's step cap and a flow that never yields would hold the request open
+  forever. It does not cover a single hung pipeline call, nor a pure-Python
+  `while True` that issues no commands. Each actor's `prompt_user` is rebound
+  per instance (so a `Scorer` stays a `Scorer`) to *raise*, naming `ask`: the
+  only way to reach it is an `input-from` carrying a `human_prompt`, which
+  belongs to the JSON runtime. A non-blocking per-session turn lock answers a
+  concurrent turn with `SessionBusy` rather than queueing it, since a queued
+  turn would deliver the reader's message into a request the UI never made.
+
+  Rewriting and forking are built on `Checkpoint`: the state
+  `snapshot_interpreter` produces, held in memory rather than written to a file,
+  paired with a `TranscriptRecorder.mark()` read at the same moment. One is taken
+  each time the flow parks at a request the main actor makes at depth 0 -- the
+  only request whose answer becomes a `MessageNode`, and so the only one a
+  rewrite could name; a mid-frame `ask` is a sub-flow's own question with a
+  half-built frame and no boundary in the tree to cut at. It is committed only
+  once the turn has produced the message it stands in front of, which is what
+  keeps a slash command (`ask` runs the handler and loops back to the same
+  `yield`, delivering nothing) from leaving a checkpoint pointing at nothing.
+  `snapshot_interpreter`'s actor states are deep copies and `load_state_dict`
+  deep-copies on the way back in, so one checkpoint restores any number of times
+  -- which is what lets the same message be rewritten repeatedly.
+
+  `rewrite(message_seq, text)` restores in place and drops that checkpoint and
+  every later one; `fork_from(source, message_seq, text)` restores a *second*
+  session from another's checkpoint and adopts a copy of its transcript prefix,
+  leaving the source untouched. Both then go through `_start_replayed_flow`,
+  which is `resume`'s move: a flow cannot be rewound, so the old generator is
+  discarded and a fresh one is run up to its own `ask` against the restored
+  state. `reset_for_replay` is the state normalization all three paths share
+  (callstack back to the main actor, waiting store cleared, `RESUMED_STORE_KEY`
+  set) -- factored out of `load_session`, which now also rebuilds the transcript.
+  A rewrite is allowed whatever the session's status, because rewriting the
+  message that broke a flow is the way out of a failed session and the flow is
+  replaced either way; both take the same non-blocking turn lock as
+  `send_input`, so neither can interleave with a running turn.
+  `MAX_CHECKPOINTS` (50) bounds the memory, since a checkpoint per message
+  otherwise grows with the square of the conversation; past it the oldest
+  messages simply stop being rewritable, which `branch_points` reports.
+
+  `cmd_exec` drops a `system` step that changed neither the system prompt nor
+  the history. Replaying a flow -- what resuming, rewriting and forking all do --
+  re-issues the flow's opening `system` against an actor that already holds that
+  prompt, and `set_system_prompt` leaves a non-empty history alone, so nothing
+  happened; recorded, it would show as a stray `system` in mid-conversation.
+
+  Two fields the UI reads are computed rather than passed through.
+  `awaiting_input` comes from the pending request, not from the prompt: a
+  request marked `content=False` yields `waiting_prompt: null` while the session
+  is still waiting, and deriving one from the other would park a session behind
+  a disabled composer. `step_pointers` is the per-actor count of commands
+  issued, because a library-runtime actor has no instruction list and so no step
+  pointer to report.
+
+  Resuming: `WebRuntime.load_session` restores the session, then makes it a
+  state a fresh flow can start on -- callstack back to just the main actor, and
+  the waiting store cleared, since a save taken inside a called actor would
+  otherwise run the new flow against the wrong working actor with every depth
+  off by one. It then rebuilds the transcript from the main actor's history,
+  filtering `(INSTRUCTIONS: ...)` turns with `data_structures.INSTRUCTIONS_RE`
+  the way `History.to_scene` does, and sets `RESUMED_STORE_KEY` so the flow can
+  skip its prologue.
+
+  Streaming would go through `Interpreter.on_generate_delta`, which reaches the
+  pipeline's `generate_stream`; the `llm_utils` pipelines do not define one, so
+  the hook is set only for a pipeline that has it.
 
 - `web/app.py`
-  `create_app(...)` builds the FastAPI app around one scenario and one
+  `create_app(...)` builds the FastAPI app around one scenario module and one
   pipeline, and `main()` runs it under uvicorn
-  (`python -m fictive.web --scenario ... --pipeline-type mock`). Routes:
-  `GET /api/health`, `GET /api/scenario`, `GET /api/sessions` (live runs plus
-  session files found in the storage directory), `POST /api/sessions` (start a
-  run, or resume one with `load_session_id`), `GET /api/sessions/{id}`,
+  (`python -m fictive.web --scenario examples/evil_AI --pipeline-type mock`).
+  Routes are unchanged: `GET /api/health`, `GET /api/scenario`,
+  `GET /api/sessions` (live runs plus session files found in the storage
+  directory), `POST /api/sessions` (start a run, or resume one with
+  `load_session_id`), `GET /api/sessions/{id}`,
   `POST /api/sessions/{id}/messages` (one reader turn, run to the next input
-  request), and `POST /api/sessions/{id}/save`. A turn is synchronous: the
-  response carries the whole updated tree, nested callees included. A built
-  `ui/dist` is mounted at `/` when present.
+  request, `409` when the session is not waiting or is already running a turn),
+  `POST /api/sessions/{id}/rewrite` (`{message_seq, text}`: replace one reader
+  message and run on from it, discarding the turns after),
+  `POST /api/sessions/{id}/fork` (`{message_seq, text?}`: branch a new session at
+  one reader message, leaving the source untouched), and
+  `POST /api/sessions/{id}/save`. A turn is synchronous: the response
+  carries the whole updated tree, nested callees included. Both branching routes
+  answer `404` for a `message_seq` the session holds no checkpoint for and `409`
+  while a turn is running; `fork` checks the branch point before it builds a
+  session, so a bad request leaves no empty session in the index. A built `ui/dist` is
+  mounted at `/` when present. `--scenario` now names a scenario module;
+  `DEFAULT_SCENARIO` is `examples/evil_AI`.
 
   `--pipeline-type` takes any type `llm_utils.pipeline_from_config` builds,
   `openai` included, so an OpenAI-compatible endpoint such as OpenRouter is
@@ -491,7 +651,9 @@ lazily for the same reason.
   without `instructions` or `source_file`, so their instruction list is empty.
 
   `Runtime` also carries the pieces a non-terminal host needs: `cmd_exec`
-  accepts `_` for `-` in command names, `save_session(...)` / `load_session(...)`
+  accepts `_` for `-` in command names, `RESUMED_STORE_KEY` names the store
+  variable a host sets before restarting a flow on a restored session (a
+  session file holds no flow position), `save_session(...)` / `load_session(...)`
   delegate to the interpreter (after a load, `working_actor` becomes the top of
   the restored callstack), `main_actor_name` comes from the interpreter and
   `main_actor` is a property, so the debugger commands and `get_exit_message()`
@@ -524,6 +686,90 @@ lazily for the same reason.
 
 - `fictive/parser/expressions.py`
   Expression helpers for the scenario language.
+
+## Scenario Loading Requirements
+
+Rules a scenario directory must satisfy for `fictive/parse_scenario_config.py`
+to load it via `--scenario`. These are the *JSON runtime's* rules, used by
+`fictive/run.py`'s `run_chat` / `run_debug` / `run_single_actor`. The web
+backend does not use them: it loads a Python scenario module instead, whose
+contract is described under `fictive/web/scenario.py` above.
+
+1. **Required file: `schema.json`.** The directory must contain exactly this
+   file, at its root. It is the only required file at a fixed name/location;
+   everything else is named *from* it.
+   - `actors` (required): list of actor names; drives per-actor
+     definition-file lookup.
+   - `main_actor` (optional): the chat actor; defaults to `actors[0]` when
+     omitted.
+   - `actor_types` (optional): maps an actor name to `"generator"`,
+     `"scorer"`, or omits it for a plain `Actor`.
+   - `actor_definitions` (optional): overrides the default per-actor file
+     path, which is otherwise `<scenario_dir>/<actor>.json`.
+   - `names`, `author_intent`, `actor_output_formats`: loaded, but never
+     applied by the backend.
+   - `main_actor` and `actor_types` are read by the host, not the loader —
+     `parse_scenario_config` returns the schema untouched, and the host chooses
+     the `Actor` subclass for each name (a map in Python, as
+     `examples/evil_AI/config.py` keeps one).
+
+2. **One JSON file per actor.** For each name in `actors`, the loader requires
+   `<scenario_dir>/<name>.json` (unless `actor_definitions` overrides the
+   path) — a JSON array of command objects. A missing file raises. Field
+   names accept `-` or `_` interchangeably (`actor-name` = `actor_name`); see
+   `SCENE_CONFIG_LANGUAGE.md` for the full field set.
+
+3. **Prompt file resolution is layout-free.** Any relative string in an actor
+   definition that resolves to an existing file — resolved relative to that
+   actor's own definition file, not the scenario root — is rewritten to an
+   absolute path, so prompt files can live in any subdirectory layout.
+   - Silent failure mode: if the resolved path does not exist, the string is
+     left unchanged and used as literal prompt text instead of raising.
+   - Exceptions: `workspace` on an `agent` command is never path-resolved
+     (it is resolved later against the runtime host root); a string shaped
+     like `"var:key"` is a store lookup, not a path.
+
+4. **Two extra rules for JSON chat mode** (`run_chat`; the web backend runs
+   flows and is not subject to either):
+   - The main actor's instruction list must eventually reach an `input-from`
+     command with `human_prompt` set (`""` counts, `null` does not) — this is
+     where control passes to the human reader. Without one, a turn runs to
+     completion or is stopped by the 400-step cap.
+   - An actor's instruction list must never end on `run-actor`; end it with
+     `exit` instead. The interpreter decides "is this the last instruction?"
+     *before* dispatch, so ending on `run-actor` wraps the caller's step
+     pointer to 0 and fills its waiting variable early — when the callee
+     returns, the caller restarts from step 0 instead of continuing. This is
+     why every nested actor in `examples/ui_demo` ends on `exit`.
+
+5. **Display name.** A scenario's display name is its directory's name,
+   unless that directory is literally named `scenario`, in which case the
+   parent directory's name is used (`examples/ui_demo/scenario` displays as
+   `ui_demo`).
+
+6. **Session files live outside the scenario.** Saved/loaded session files
+   are written under `--storage-dir`, never inside the scenario directory —
+   a scenario directory can be treated as read-only at runtime.
+
+7. **`actor_types: "scorer"` gotcha.** A scorer actor always enforces the
+   default `SCORE: [1-5]` output regex, regenerating up to 10 times and then
+   raising if the model never matches. `actor_output_formats` in
+   `schema.json` is compiled but never reaches the scorer, because
+   `actor_from_config` builds `Scorer(cfg)` without passing `output_format`.
+   A weak or mock model is thus guaranteed to raise as a scorer — this is why
+   `examples/ui_demo` uses a plain `Actor`, not `"scorer"`, for its critic.
+
+Example layout:
+
+```
+examples/ui_demo/scenario/
+├── schema.json              # required, this exact name
+├── narrator.json            # one per name in schema["actors"]
+├── scene_critic.json
+└── prompts/                 # any layout; referenced relatively
+    ├── narrator_system.txt
+    └── scene_critic_task.txt
+```
 
 ## How The Pieces Fit Together
 
@@ -597,18 +843,26 @@ directories beneath that root. This prevents a scenario from widening host
 permissions and gives both Fictive and the standalone harness an independent
 containment check.
 
-Chat mode over HTTP (`fictive/web/`, driving `ui/`) is the same flow as
-`run_chat` with the human turn moved off stdin:
+Chat mode over HTTP (`fictive/web/`, driving `ui/`) is the library-runtime flow
+with the driver replaced: `drive_flow` blocks for each answer, and the backend
+parks the generator instead.
 
-1. The host builds one pipeline and one `ScenarioSpec`, and each session builds
-   its own actors and `Interpreter` from that spec.
-2. `ChatSession.advance()` steps `exec_current()` until `DebuggerSession`
-   reports an exit or the next instruction is an `input-from` wanting a human
-   answer, and the request returns at that point.
-3. `POST /api/sessions/{id}/messages` queues the answer and advances again, so
-   one request runs the reader's turn plus every actor that turn calls.
-4. Each step is recorded at its callstack depth, which is what makes a called
-   actor's flow drawable inside the caller's.
+1. The host builds one pipeline and one `RuntimeScenarioSpec` -- an imported
+   scenario module, not a scenario directory. Each session builds its own actors,
+   `Interpreter` and `WebRuntime` from that spec, and registers the scenario's
+   slash commands.
+2. `RuntimeChatSession.start()` calls `next(flow)`, which runs the flow's
+   prologue and every command after it until the flow yields an `InputRequest`.
+   The request returns at that point.
+3. `POST /api/sessions/{id}/messages` calls `flow.send(answer)`, so one request
+   runs the reader's turn plus every actor that turn calls, and returns at the
+   next `InputRequest`.
+4. `WebRuntime` records each command at its open-frame depth, which is what
+   makes a called actor's flow drawable inside the caller's. `call_actor`'s
+   `run-actor` opens a frame and its unwind closes it.
+5. Resuming restores a session and starts the flow again against it, because a
+   session file holds no flow position; `RESUMED_STORE_KEY` lets the flow skip
+   its prologue.
 
 Sessions and retrieval-augmented generation:
 

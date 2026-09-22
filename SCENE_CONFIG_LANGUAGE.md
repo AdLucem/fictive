@@ -1,5 +1,15 @@
 # Scene Config Language
 
+The JSON scenario format: the commands and fields an actor's instruction list
+may hold, as walked by `Interpreter.exec_current` under `fictive/run.py`'s
+`run_chat`, `run_debug` and `run_single_actor`.
+
+The same commands are available to a library-runtime flow, one method per
+command, but the control-flow constructs here (`cond`, `loop`, `exit`) have no
+counterpart there -- Python's own `if`, `while` and `return` do that work. The
+web backend runs flows only, so nothing on this page describes it; see
+`DOCS.md` for the flow API and the scenario-module contract.
+
 
 ## Expressions
 
