@@ -109,14 +109,47 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rail__group { margin: 8px 16px 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--on-surface-variant); }
 
 .session-item {
-  width: 100%; min-height: 56px; text-align: left; padding: 9px 16px;
+  flex: 1 1 auto; min-width: 0; min-height: 56px; text-align: left; padding: 9px 16px;
   border: 0; border-radius: 28px; background: transparent;
   display: flex; flex-direction: column; gap: 3px;
 }
 .session-item--active { background: var(--secondary-container); color: var(--on-secondary-container); }
-.session-item__title { font-size: 14px; font-weight: 500; }
-.session-item__meta { font-family: var(--mono); font-size: 11px; color: var(--on-surface-variant); }
+.session-item__title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-item__meta { font-family: var(--mono); font-size: 11px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-item:disabled { opacity: 0.5; cursor: progress; }
 .rail__empty { margin: 4px 16px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* A row is a button, so its delete control sits beside it rather than inside.
+   It appears on hover or keyboard focus, so a rail being read stays a list. */
+.session-row { display: flex; align-items: center; gap: 2px; }
+.session-delete {
+  flex-shrink: 0; width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 17px; background: transparent;
+  color: var(--on-surface-variant); cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease;
+}
+.session-row:hover .session-delete,
+.session-row:focus-within .session-delete { opacity: 1; }
+.session-delete:hover:not(:disabled) { background: var(--error-container); color: var(--on-error-container); }
+.session-delete:disabled { opacity: 0; cursor: not-allowed; }
+
+/* Deleting removes a file from disk, so it takes a second click -- asked in
+   the row itself, which keeps the question next to the thing it is about. */
+.session-row--confirming { padding: 2px 0; }
+.session-confirm {
+  width: 100%; padding: 12px 16px; border-radius: var(--shape-md);
+  background: var(--level-2); display: flex; flex-direction: column; gap: 4px;
+}
+.session-confirm__question { font-size: 14px; font-weight: 500; }
+.session-confirm__note { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.session-confirm__actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+.session-confirm__delete {
+  height: 34px; padding: 0 14px; border: 0; border-radius: 17px;
+  background: var(--error-container); color: var(--on-error-container);
+  font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.session-confirm__delete:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ----------------------------------------------------------------- main */
 
@@ -141,6 +174,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   width: 48px; height: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   border: 0; border-radius: 24px; background: transparent;
 }
+.icon-button[aria-pressed="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
 .icon-button:disabled, .button-outlined:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .transcript { flex-grow: 1; overflow: auto; padding: 24px 0 8px; }
@@ -251,12 +285,36 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .status--returned { border: 1px solid var(--outline-variant); color: var(--on-surface-variant); }
 .status--running { background: var(--primary-container); color: var(--on-primary-container); }
 .status--failed { background: var(--error-container); color: var(--on-error-container); }
+.status--wait { background: var(--tertiary-container); color: var(--on-tertiary-container); font-family: var(--mono); }
+.status--wait .status__dot { background: var(--on-tertiary-container); }
+.status--wait-done {
+  border: 1px solid var(--outline-variant); color: var(--on-surface-variant);
+}
+.status--wait-done .status__dot { background: var(--muted); }
 .status__dot { width: 7px; height: 7px; border-radius: 4px; background: var(--primary); display: inline-block; }
 
 .step { display: flex; gap: 14px; align-items: baseline; }
 .step__command { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 112px; flex-shrink: 0; }
 .step__detail { font-size: 14px; color: var(--on-surface-variant); line-height: 1.5; }
 .step__text { border-radius: var(--shape-md); padding: 12px 16px; font-family: var(--serif); font-size: 16px; line-height: 1.55; white-space: pre-wrap; }
+
+/* `system` and `input-from` carry the whole text they were handed, not just
+   the file it came from. The row above it collapses the block; the block
+   itself scrolls, so one long prompt cannot push the transcript around. */
+.step__disclosure {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
+  padding: 0; border: 0; background: transparent; text-align: left;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.step__chevron { flex-shrink: 0; align-self: center; color: var(--muted); transition: transform 0.15s ease; }
+.step__disclosure--open .step__chevron { transform: rotate(90deg); }
+.step__disclosure:hover .step__detail { color: var(--on-surface); }
+.step__size { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.step__detail-text {
+  border-radius: var(--shape-md); padding: 12px 16px; max-height: 340px; overflow: auto;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  color: var(--on-surface-variant); white-space: pre-wrap; word-break: break-word;
+}
 .step__error { color: var(--on-error-container); background: var(--error-container); border-radius: var(--shape-sm); padding: 8px 12px; font-family: var(--mono); font-size: 12px; }
 
 .depth-stub {

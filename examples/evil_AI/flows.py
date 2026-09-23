@@ -141,8 +141,6 @@ def flow(runtime: Runtime):
         runtime.generate(SCENARIO_DIR / "generator_prompt.txt", visible=True)
         show_reply(runtime)
 
-    # The JSON flow closes with `loop` back to the user's turn; here that is
-    # just a Python loop.
     while True:
         # `content=False`: this is the turn-taking cue, not something the scene
         # is saying. A terminal prints it; a chat UI has its own input box and

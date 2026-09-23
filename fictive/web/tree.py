@@ -37,6 +37,17 @@ GENERATING_COMMANDS = {"generate", "rag-generate", "web-search-and-generate"}
 # A step that needs no detail line of its own in the UI.
 QUIET_COMMANDS = {"refresh", "print", "print-latest"}
 
+# Commands whose *input* is worth showing in full, not just named. A `system`
+# or an `input-from` is usually written as a file path, and the file name alone
+# says nothing about what the actor was actually handed.
+DETAILED_COMMANDS = {"system", "input-from"}
+
+# `detail_text` carries a whole prompt rather than a summary line, so it gets a
+# far looser cap than `_truncate`'s -- loose enough that a real system prompt
+# arrives whole, bounded only so one pathological file cannot bloat every
+# response that redraws the tree.
+DETAIL_TEXT_LIMIT = 40000
+
 
 def _truncate(text: str, limit: int = 4000) -> str:
     if len(text) <= limit:
@@ -78,6 +89,21 @@ def new_assistant_text(actor: Actor, history_before: int) -> Optional[str]:
         if message.get("role") == "assistant":
             return _truncate(_as_text(message.get("content")))
     return None
+
+
+def new_history_text(actor: Actor, history_before: int) -> Optional[str]:
+    """The message this command added to history, whatever role it took.
+
+    Role-agnostic where `new_assistant_text` is not, because this reads what a
+    command was *given* rather than what it generated: `input-from` appends the
+    resolved input as a plain user turn, but an actor's latest output arrives as
+    a dict carrying its own role and `append_to_history` keeps that role.
+    """
+    history = actor.history.read(merged=False)
+    added = history[history_before:]
+    if not added:
+        return None
+    return _truncate(_as_text(added[-1].get("content")), DETAIL_TEXT_LIMIT)
 
 
 @dataclass
@@ -128,6 +154,10 @@ class StepNode:
     text: Optional[str] = None
     step: Optional[int] = None
     error: Optional[str] = None
+    # What the command was handed, in full: the resolved system prompt, or the
+    # text an `input-from` put into the actor. `detail` stays the one-line
+    # label, so the UI has something to show while this is collapsed.
+    detail_text: Optional[str] = None
 
     def to_json(self) -> dict:
         return {
@@ -137,6 +167,7 @@ class StepNode:
             "command": self.command,
             "depth": self.depth,
             "detail": self.detail,
+            "detail_text": self.detail_text,
             "text": self.text,
             "step": self.step,
             "error": self.error,

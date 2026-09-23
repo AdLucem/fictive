@@ -248,6 +248,24 @@ class Runtime:
     def clear_visible(self) -> None:
         self.last_visible = None
 
+    # Wait mode reads through to the interpreter rather than keeping a copy of
+    # it, so there is one source of truth and every `Runtime` subclass --
+    # `WebRuntime`, `BedrockRuntime` -- gets the behaviour with no edit.
+    @property
+    def waiting(self) -> bool:
+        """True while a `wait` is still running down; it expires on its own."""
+        return self.interpreter.wait_active
+
+    @property
+    def wait_remaining(self) -> float:
+        """Seconds left on the current wait, 0.0 when none is running."""
+        return self.interpreter.wait_remaining
+
+    @property
+    def wait_seconds(self) -> float:
+        """The duration the last `wait` asked for, 0.0 when none is running."""
+        return self.interpreter.wait_seconds
+
     def register_command(self, name: str, handler: Callable[[Runtime, str], None]) -> None:
         """Register a special command handler.
         
@@ -359,6 +377,15 @@ class Runtime:
 
     def echo(self, text: str | Path):
         return self.cmd("print", prompt=_as_prompt(text))
+
+    def wait(self, seconds: float):
+        """Enter wait mode for `seconds`. Non-blocking: the flow runs straight on.
+
+        Nothing sleeps. The interpreter records a deadline and the next command
+        executes immediately; read `waiting` / `wait_remaining` to branch on
+        whether the clock is still running. `seconds=0` cancels an active wait.
+        """
+        return self.cmd("wait", seconds=seconds)
 
     def show_latest(self, actor_name: Optional[str] = None, n: int = 0):
         """Print an actor's latest output and record it as the shown answer."""

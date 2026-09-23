@@ -39,6 +39,8 @@ from ..library_runtime import (
 from ..session import restore_interpreter, snapshot_interpreter
 from .scenario import RuntimeScenarioSpec
 from .tree import (
+    DETAIL_TEXT_LIMIT,
+    DETAILED_COMMANDS,
     GENERATING_COMMANDS,
     QUIET_COMMANDS,
     MessageNode,
@@ -47,6 +49,7 @@ from .tree import (
     _as_text,
     _truncate,
     new_assistant_text,
+    new_history_text,
 )
 
 # Distinguishes "this was not a `system` command" from a system prompt of None.
@@ -324,6 +327,7 @@ class WebRuntime(Runtime):
                 depth=depth,
                 seq=seq,
                 detail=self._detail(command, kwargs),
+                detail_text=self._detail_text(command, kwargs, actor, history_before),
                 text=generated if generated is not None else (printed or None),
                 step=count,
             )
@@ -467,6 +471,9 @@ class WebRuntime(Runtime):
         """
         self.interpreter.callstack = [self.main_actor_name]
         self.interpreter.waiting_store.clear()
+        # A countdown belongs to the generator that started it, and every path
+        # through here discards that generator.
+        self.interpreter.clear_wait()
         self.working_actor = self.interpreter.actor_fetch(self.main_actor_name)
         self.clear_visible()
         self.store_set(RESUMED_STORE_KEY, True)
@@ -562,9 +569,54 @@ class WebRuntime(Runtime):
                 )
             if command == "write":
                 return str(kwargs.get("path", ""))
+            if command == "wait":
+                return f"{kwargs.get('seconds', '?')}s"
         except Exception:
             return ""
         return ""
+
+    def _detail_text(
+        self,
+        command: str,
+        kwargs: dict,
+        actor: Actor,
+        history_before: int,
+    ) -> Optional[str]:
+        """The whole text the command was handed, for a collapsible block.
+
+        `_detail` names a prompt; this is the prompt. A `system` or an
+        `input-from` is nearly always written as a path, and a file name says
+        nothing about what the actor was actually given -- which for reading a
+        scenario back is the only thing that matters.
+
+        Read off the actor after the command ran, rather than by resolving the
+        path again here: `exec_SYSTEM` and `exec_INPUT_FROM` put the resolved
+        text where it belongs, and reading it back is both simpler than
+        reimplementing `parse_prompt_object` and honest about enclosing prompts
+        and store lookups, which have no file behind them at all.
+
+        Never raises, for the same reason `_detail` does not: a detail line must
+        not be able to break a run.
+        """
+        if command not in DETAILED_COMMANDS:
+            return None
+        try:
+            if command == "system":
+                # The parsed prompt, which `exec_SYSTEM` has just set.
+                return _truncate(_as_text(actor.system_prompt), DETAIL_TEXT_LIMIT) or None
+            # `input-from` appends its resolved input to history, unless a
+            # `store` took it instead (and `history` did not also ask for it).
+            appended = new_history_text(actor, history_before)
+            if appended:
+                return appended
+            store = kwargs.get("store")
+            if store:
+                value = self.read_store(str(store))
+                if value:
+                    return _truncate(value, DETAIL_TEXT_LIMIT)
+        except Exception:
+            return None
+        return None
 
     def _prompt_label(self, value) -> str:
         """Prompt paths show as a scenario-relative name, not an absolute path."""
@@ -963,6 +1015,33 @@ class RuntimeChatSession:
         self.saved_path = str(path)
         return self.saved_path
 
+    def discard(self) -> None:
+        """Drop this run: the parked flow, its checkpoints and its transcript.
+
+        Taken under the same non-blocking turn lock as every other way of
+        running a turn, so a session cannot be torn down from under a request
+        that is mid-generation; the caller gets `SessionBusy` and can try again
+        when the turn lands. The lock is released afterwards even though nothing
+        should reach this session again -- the app drops its only reference on
+        the way out, and a lock left held would be a lie about why.
+
+        Everything a checkpoint holds is a deep copy of every actor's history,
+        which is the bulk of a session's memory, so this is dropped explicitly
+        rather than left to the reference count of whatever else may still be
+        looking at the object.
+        """
+        if not self._turn_lock.acquire(blocking=False):
+            raise SessionBusy(f"Session {self.id} is running a turn.")
+        try:
+            self._pending_request = None
+            self._parked_checkpoint = None
+            self._flow = None
+            self.checkpoints.clear()
+            self.recorder.reset()
+            self.status = "discarded"
+        finally:
+            self._turn_lock.release()
+
     def store_json(self) -> list[dict]:
         store = self.interpreter.store.store
         waiting = dict(self.interpreter.waiting_store)
@@ -1030,6 +1109,14 @@ class RuntimeChatSession:
             "step_pointers": {
                 name: self.recorder.command_counts.get(name, 0)
                 for name in self.interpreter.actors
+            },
+            # Seconds remaining rather than an absolute deadline: the browser's
+            # clock need not agree with the host's, so the client counts down
+            # from the reading it was handed instead of from a shared instant.
+            "wait": {
+                "active": self.interpreter.wait_active,
+                "remaining": round(self.interpreter.wait_remaining, 3),
+                "total": self.interpreter.wait_seconds,
             },
             "commands": sorted(self.runtime.commands),
         }

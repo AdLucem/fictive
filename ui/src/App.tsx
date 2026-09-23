@@ -5,6 +5,7 @@ import { Composer } from "./components/Composer";
 import { Inspector } from "./components/Inspector";
 import { SessionsRail } from "./components/SessionsRail";
 import { Transcript } from "./components/Transcript";
+import { WaitTimer } from "./components/WaitTimer";
 import { Save, Stack } from "./components/icons";
 
 interface Toast {
@@ -91,6 +92,40 @@ export default function App() {
     });
   };
 
+  /**
+   * Forget a session, and leave the app with something to show.
+   *
+   * Deleting the open session is the normal case -- it is the one in front of
+   * you -- so the view has to land somewhere: the next live session if there is
+   * one, and a fresh session if that was the last. Deleting any other row only
+   * needs the rail redrawn, and the open session is left exactly as it is.
+   */
+  const onDelete = (id: string) => {
+    setBusy(true);
+    void (async () => {
+      try {
+        const result = await api.deleteSession(id);
+        const next = await api.sessions();
+        setIndex(next);
+        setToast({
+          text: result.deleted_file
+            ? `Deleted ${id} and its session file`
+            : `Deleted ${id}`,
+          tone: "info",
+        });
+        if (session?.id === id) {
+          const survivor = next.live.find((row) => row.id !== id);
+          setSession(survivor ? await api.session(survivor.id) : await api.createSession());
+          if (!survivor) await refreshIndex();
+        }
+      } catch (error) {
+        setToast({ text: (error as Error).message, tone: "error" });
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   const onNew = () => void run(() => api.createSession());
 
   const onOpen = (id: string) => void run(() => api.session(id));
@@ -144,6 +179,7 @@ export default function App() {
         onNew={onNew}
         onOpen={onOpen}
         onResume={onResume}
+        onDelete={onDelete}
       />
 
       <main className="main">
@@ -163,6 +199,7 @@ export default function App() {
               running
             </span>
           ) : null}
+          <WaitTimer wait={session.wait} />
           <span style={{ flexGrow: 1 }} />
           <button
             type="button"

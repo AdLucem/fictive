@@ -130,6 +130,15 @@ class Interpreter:
         self._state_restored = False
         self._deferred_saves = []
 
+        # Wait mode. `wait_until` is a `time.monotonic()` deadline and
+        # `wait_seconds` the duration the command asked for, which is what a UI
+        # needs to draw a countdown. Nothing blocks on any of it: `wait_active`
+        # is computed from the clock, so a wait ends on its own and there is no
+        # timer thread to own. Named `wait_*` rather than `waiting` because
+        # `waiting_store` is next to it and is unrelated.
+        self.wait_until: Optional[float] = None
+        self.wait_seconds: float = 0.0
+
         self.exec_map = {
             "system": self.exec_SYSTEM,
             "generate": self.exec_GENERATE,
@@ -142,6 +151,7 @@ class Interpreter:
             "write": self.exec_WRITE,
             "print": self.exec_PRINT,
             "print-latest": self.exec_PRINT_LATEST,
+            "wait": self.exec_WAIT,
             "cond": self.exec_COND,
             "exit": self.exec_EXIT,
             "save-conversation": self.exec_SAVE_CONVERSATION,
@@ -156,6 +166,33 @@ class Interpreter:
         # default) means generation proceeds exactly as before, with no
         # streaming overhead.
         self.on_generate_delta: Optional[Callable[[str, dict], None]] = None
+
+    @property
+    def wait_remaining(self) -> float:
+        """Seconds left on the current wait, 0.0 when none is running."""
+        if self.wait_until is None:
+            return 0.0
+        return max(0.0, self.wait_until - time.monotonic())
+
+    @property
+    def wait_active(self) -> bool:
+        return self.wait_remaining > 0.0
+
+    def start_wait(self, seconds: float) -> None:
+        """Begin (or replace) a wait. `seconds <= 0` cancels instead.
+
+        `time.monotonic()` rather than `time.time()`, so a system clock
+        adjustment cannot make a wait finish early or hang past its deadline.
+        """
+        if seconds <= 0:
+            self.clear_wait()
+            return
+        self.wait_seconds = float(seconds)
+        self.wait_until = time.monotonic() + self.wait_seconds
+
+    def clear_wait(self) -> None:
+        self.wait_until = None
+        self.wait_seconds = 0.0
 
     def log_exec_command(self, cmd: type[CommandObj], actor_name: str) -> None:
         if not logging.getLogger().isEnabledFor(logging.DEBUG):
@@ -903,6 +940,20 @@ class Interpreter:
             print(latest_output["content"])
         else:
             print(latest_output)
+        return self.actor_fetch(actor_name)
+
+    def exec_WAIT(self,
+                  cmd: type[CommandObj],
+                  actor_name: str) -> Actor:
+        """Enter wait mode for `cmd.seconds`.
+
+        Non-blocking by design: this sets a deadline and returns, so the flow
+        runs straight on and reads `wait_active` / `wait_remaining` when it
+        wants to know whether the clock is still running.
+        """
+        self.log_exec_command(cmd, actor_name)
+
+        self.start_wait(cmd.seconds)
         return self.actor_fetch(actor_name)
 
     def exec_COND(self,

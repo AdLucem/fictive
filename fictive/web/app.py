@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 from llm_utils import PipelineConfig, pipeline_from_config
 
+from ..session import validate_session_id
 from .chat import (
     BranchPointUnknown,
     RuntimeChatSession,
@@ -237,6 +238,52 @@ def create_app(
             sessions.pop(fork.id, None)
             raise HTTPException(status_code=400, detail=f"Could not fork: {exc}") from exc
         return fork.to_json()
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(session_id: str) -> dict:
+        """Forget a session: the live run, its session file, or both.
+
+        One route for both, because the rail shows one row per id -- a live run
+        that has been saved is not listed a second time under the files -- so
+        "delete this" can only mean everything behind that row. A session file
+        is named for the session that wrote it, so there is no id under which
+        one session's run could be dropped and another's file deleted.
+
+        `session_id` is validated before it is joined to a path: it arrives from
+        the URL, and `conversations_dir() / f"{session_id}.json"` would
+        otherwise follow `..` straight out of the storage directory.
+        """
+        try:
+            validate_session_id(session_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        session = sessions.get(session_id)
+        if session is not None:
+            try:
+                session.discard()
+            except SessionBusy as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            sessions.pop(session_id, None)
+
+        deleted_file = None
+        path = conversations_dir() / f"{session_id}.json"
+        if path.is_file():
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"Could not delete {path}: {exc}"
+                ) from exc
+            deleted_file = str(path)
+
+        if session is None and deleted_file is None:
+            raise HTTPException(status_code=404, detail=f"No session {session_id}")
+        return {
+            "id": session_id,
+            "deleted_live": session is not None,
+            "deleted_file": deleted_file,
+        }
 
     @app.post("/api/sessions/{session_id}/save")
     def save_session(session_id: str) -> dict:

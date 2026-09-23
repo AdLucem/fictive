@@ -136,7 +136,12 @@ helpers and SGLang integration.
   `run-actor` frame on the interpreter callstack, nested to five levels and
   counted by name below that. Hovering a reader message reveals `Rewrite` and
   `Fork` (`ui/src/components/ReaderMessage.tsx`), offered on the messages named
-  in the session's `branch_points`. `ui/README.md` documents the two-process
+  in the session's `branch_points`. Each row in the session rail carries a
+  delete control that asks once in the row itself
+  (`ui/src/components/SessionsRail.tsx`). `ui/src/components/WaitTimer.tsx` is
+  the top bar's countdown for `wait` mode, with a clock symbol that hides and
+  re-shows it; it ticks client-side off the seconds-remaining reading each
+  response carries, because the front end neither polls nor streams. `ui/README.md` documents the two-process
   development setup and the endpoints the app calls. `npm run build` writes
   `ui/dist`, which the backend serves at `/` when it exists, so one process can
   serve both. Node dependencies are not part of the Python install.
@@ -241,7 +246,7 @@ helpers and SGLang integration.
   Implements the instruction executor. It manages actor dispatch, the call
   stack, variable passing, and the concrete command handlers such as
   `system`, `generate`, `agent`, `input-from`, `run-actor`, `assign`, `write`,
-  `cond`, and `print`. Conditional branches queue nested command blocks,
+  `cond`, `wait`, and `print`. Conditional branches queue nested command blocks,
   evaluate expressions against the shared interpreter store, and `write` can
   persist latest outputs, prompt-like inputs, or actor histories to files.
   Agent execution uses only a host-injected executor and canonical root; the
@@ -293,6 +298,16 @@ helpers and SGLang integration.
   `max(...)`, which raises when a history holds no user turn at all.
   `resolve_prompt_path` treats a string too long to be a path as literal text
   instead of raising `OSError`.
+  Wait mode: `wait_until` (a `time.monotonic()` deadline) and `wait_seconds`,
+  with `start_wait` / `clear_wait` and the computed `wait_remaining` /
+  `wait_active`. `exec_WAIT` only records the deadline, so the command does not
+  block and the next instruction runs at once. Nothing has to end a wait:
+  `wait_active` is derived from the clock on every read, which is why there is
+  no timer thread, no callback and no expiry bookkeeping anywhere. `monotonic`
+  rather than `time()` so a system clock adjustment cannot cut a wait short or
+  extend it. They are named `wait_*` rather than `waiting` because
+  `waiting_store` sits beside them and is unrelated. Nothing persists it: see
+  `fictive/session.py`, which holds no wait state.
 
 - `fictive/parse_scenario_config.py`
   Loads a scenario directory from disk. It reads `schema.json`, loads per-actor
@@ -442,6 +457,15 @@ way `drive_flow`'s docstring describes for a host that must not block.
   `GET` cannot serialize a half-built node list, and the lock is never held
   across a model call.
 
+  A `StepNode` carries `detail` (a one-line label) and `detail_text` (the whole
+  text the command was handed, capped at `DETAIL_TEXT_LIMIT`). The second is
+  filled only for `DETAILED_COMMANDS` -- `system` and `input-from` -- where a
+  file name says nothing about what the actor got. `new_history_text` reads it
+  back off history and is deliberately role-agnostic where `new_assistant_text`
+  is not: `input-from` appends its resolved input as a user turn, but an actor's
+  latest output arrives as a dict carrying its own role, which
+  `append_to_history` keeps.
+
   `new_assistant_text(actor, history_before)` is the one correct reader for a
   command's output: it diffs unmerged history around the command, so it returns
   `None` when the command generated nothing (a `system` is never mislabelled as
@@ -558,6 +582,26 @@ way `drive_flow`'s docstring describes for a host that must not block.
   prompt, and `set_system_prompt` leaves a non-empty history alone, so nothing
   happened; recorded, it would show as a stray `system` in mid-conversation.
 
+  `_detail_text` reads what a `system` or an `input-from` was given off the
+  actor *after* the command ran -- `actor.system_prompt` for the one, the
+  message appended to history (or the store variable that took it instead) for
+  the other -- rather than resolving the path a second time here. That is both
+  shorter than reimplementing `parse_prompt_object` and more honest: it shows
+  the enclosing prompt applied and the store lookup resolved, and a literal
+  string needs no special case. Like `_detail`, it never raises.
+
+  `discard()` tears a session down under the same non-blocking turn lock every
+  other way of running a turn takes, so a session cannot be deleted out from
+  under a request that is mid-generation; it drops the parked generator, the
+  checkpoints (a deep copy of every actor's history each, and so the bulk of a
+  session's memory) and the transcript, and leaves `status` at `"discarded"`.
+
+  `to_json` reports wait mode as seconds *remaining* rather than as a deadline:
+  the browser's clock need not agree with the host's, so the page counts down
+  from the reading it was handed instead of from a shared instant.
+  `reset_for_replay` clears the wait, because loading, rewriting and forking all
+  discard the generator that started it; a replayed flow issues its own.
+
   Two fields the UI reads are computed rather than passed through.
   `awaiting_input` comes from the pending request, not from the prompt: a
   request marked `content=False` yields `waiting_prompt: null` while the session
@@ -592,8 +636,15 @@ way `drive_flow`'s docstring describes for a host that must not block.
   `POST /api/sessions/{id}/rewrite` (`{message_seq, text}`: replace one reader
   message and run on from it, discarding the turns after),
   `POST /api/sessions/{id}/fork` (`{message_seq, text?}`: branch a new session at
-  one reader message, leaving the source untouched), and
-  `POST /api/sessions/{id}/save`. A turn is synchronous: the response
+  one reader message, leaving the source untouched),
+  `POST /api/sessions/{id}/save`, and `DELETE /api/sessions/{id}` (forget a
+  session: the live run, its session file, or both -- one route for both because
+  the rail shows one row per id, and a file is named for the session that wrote
+  it, so no id could name one session's run and another's file). The id is put
+  through `validate_session_id` before it is joined to a path, since it arrives
+  from the URL and would otherwise follow `..` out of the storage directory; a
+  delete answers `409` while a turn is running and `404` when neither a run nor
+  a file exists. A turn is synchronous: the response
   carries the whole updated tree, nested callees included. Both branching routes
   answer `404` for a `message_seq` the session holds no checkpoint for and `409`
   while a turn is running; `fork` checks the branch point before it builds a
@@ -650,6 +701,12 @@ lazily for the same reason.
   with the callee's last output. Actors built for this runtime are created
   without `instructions` or `source_file`, so their instruction list is empty.
 
+  `wait(seconds=...)` issues the `wait` command -- named for the command, like
+  every other method here -- while `waiting`, `wait_remaining` and
+  `wait_seconds` are properties that read *through* to the interpreter rather
+  than caching it, so there is one source of truth and `WebRuntime` and
+  `BedrockRuntime` inherit the behaviour without an override of their own.
+
   `Runtime` also carries the pieces a non-terminal host needs: `cmd_exec`
   accepts `_` for `-` in command names, `RESUMED_STORE_KEY` names the store
   variable a host sets before restarting a flow on a restored session (a
@@ -674,7 +731,10 @@ lazily for the same reason.
   Defines the command enum and the dataclass-backed command objects consumed by
   actors and the interpreter, including the scene-language `write` command for
   file output and the bounded `agent` command, plus `save-conversation`,
-  `load-conversation`, `rag-generate` and `web-search-and-generate`.
+  `load-conversation`, `rag-generate`, `web-search-and-generate` and the
+  non-blocking `wait`. `WAIT.__post_init__` rejects a `bool` before the range
+  check, as `RAG_GENERATE` and `WEB_SEARCH_AND_GENERATE` do, since `True` is an
+  `int`.
   `Cmd.from_name`, used by `parse_command_dict` and `Runtime.cmd_exec`, accepts
   `_` for `-` in command names, so `rag_generate` is `rag-generate`, and a
   `Cmd._missing_` hook resolves any remaining separator style or case, so

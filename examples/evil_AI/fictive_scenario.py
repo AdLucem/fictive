@@ -2,13 +2,15 @@
 
 `fictive/web/scenario.py` imports this module and asks it four things: which
 actor's generations are the conversation, which actors exist and what type each
-one is, and what the entry flow is. Everything else stays where it was --
-`config.py` owns the paths and the argument parser, `flows.py` owns the flows,
-and `main.py` remains the terminal entry point.
+one is, and what the entry flow is. 
+
+Other files:
+- `config.py` contains the paths and the argument parser
+- `flows.py` contains the flows
 
 Run it with:
 
-    python -m fictive.web --scenario examples/evil_AI --pipeline-type mock
+    python -m fictive.web --scenario examples/evil_AI --pipeline-type <pipeline type> --model <model>
 """
 
 from config import ACTOR_TYPES, SCENARIO_DIR

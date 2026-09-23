@@ -20,6 +20,12 @@ export interface StepNode {
   command: string;
   depth: number;
   detail: string;
+  /**
+   * The whole text the command was handed, where naming it is not enough: a
+   * `system`'s resolved prompt, or what an `input-from` put into the actor.
+   * `detail` stays the one-line label the collapsed row shows.
+   */
+  detail_text: string | null;
   text: string | null;
   step: number | null;
   error: string | null;
@@ -67,6 +73,15 @@ export interface Scenario {
   conversations_dir?: string;
 }
 
+export interface WaitState {
+  /** True while the runtime's `wait` is still running down. */
+  active: boolean;
+  /** Seconds left at the moment the backend built this response. */
+  remaining: number;
+  /** Seconds the `wait` command asked for. */
+  total: number;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -94,6 +109,11 @@ export interface Session {
   turns: TranscriptNode[];
   store: StoreRow[];
   step_pointers: Record<string, number>;
+  /**
+   * Wait mode. The backend sends seconds remaining rather than a deadline, so
+   * the browser counts down from that reading and no clock skew can shift it.
+   */
+  wait: WaitState;
 }
 
 export interface LiveSessionRow {

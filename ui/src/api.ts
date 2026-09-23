@@ -50,6 +50,13 @@ export const api = {
       body: JSON.stringify({ message_seq: messageSeq, text }),
     }),
 
+  /** Forget a session: the live run, its session file on disk, or both. */
+  deleteSession: (id: string) =>
+    request<{ id: string; deleted_live: boolean; deleted_file: string | null }>(
+      `/api/sessions/${id}`,
+      { method: "DELETE" },
+    ),
+
   saveSession: (id: string) =>
     request<{ id: string; saved_path: string }>(`/api/sessions/${id}/save`, { method: "POST" }),
 };

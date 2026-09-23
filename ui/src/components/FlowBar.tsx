@@ -54,13 +54,51 @@ function shorten(value: string, limit = 14) {
   return oneLine.length > limit ? `${oneLine.slice(0, limit)}…` : oneLine;
 }
 
+function sizeLabel(text: string) {
+  const trimmed = text.trim();
+  const words = trimmed ? trimmed.split(/\s+/).length : 0;
+  return `${words} word${words === 1 ? "" : "s"}`;
+}
+
+/**
+ * One command that did not open a frame.
+ *
+ * `detail` names what the command was given; `detail_text` is that thing. A
+ * `system` or an `input-from` is nearly always written as a path, and the file
+ * name alone says nothing about what the actor was handed, so the text is shown
+ * rather than named — open by default, because reading it is the whole point,
+ * and collapsible because a system prompt can be longer than the conversation
+ * it set up. The open block scrolls inside its own bounds for the same reason:
+ * one long prompt must not push a transcript around.
+ */
 export function Step({ node, depth }: { node: StepNode; depth: number }) {
+  const [open, setOpen] = useState(true);
+  const detailText = node.detail_text;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div className="step">
         <span className="step__command">{node.command}</span>
-        <span className="step__detail">{node.detail}</span>
+        {detailText ? (
+          <button
+            type="button"
+            className={`step__disclosure${open ? " step__disclosure--open" : ""}`}
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            <Chevron className="step__chevron" />
+            <span className="step__detail">{node.detail || "prompt"}</span>
+            <span className="step__size">{sizeLabel(detailText)}</span>
+          </button>
+        ) : (
+          <span className="step__detail">{node.detail}</span>
+        )}
       </div>
+      {detailText && open ? (
+        <div className="step__detail-text" style={{ background: toneFor(depth + 1) }}>
+          {detailText}
+        </div>
+      ) : null}
       {node.text ? (
         <div className="step__text" style={{ background: toneFor(depth + 1) }}>
           {node.text}

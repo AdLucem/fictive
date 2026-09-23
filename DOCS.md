@@ -88,6 +88,7 @@ We code a flow as a python function `def my_flow(runtime):`. Every method on `ru
 - `runtime.system(PATH)` sets the system prompt. `runtime.input_from_file(PATH)` appends a prompt file as a user turn, `runtime.input_from_store(key)` appends a store value, and `runtime.store_set(key, value)` writes one.
 - `runtime.generate(prompt=None, visible=False)` runs the model, `runtime.show_latest()` prints the result, and `runtime.raw_latest_text()` returns it as a string.
 - `runtime.actor("generator").get_scene()` returns the scene so far, which only the generator holds.
+- `runtime.wait(seconds=N)` enters wait mode for `N` seconds, and `runtime.waiting` / `runtime.wait_remaining` read it back. See [Wait mode](#wait-mode).
 - Prompt paths are module-level `Path` constants built from `SCENARIO_ROOT`.
 
 ### Example Flow
@@ -135,6 +136,39 @@ def writer_flow(runtime):
         runtime.show_latest()
         runtime.store_set("round", runtime.store_get("round") + 1)
 ```
+
+## Wait mode
+
+`runtime.wait(seconds=N)` marks a stretch of time as passing. It is
+**non-blocking**: nothing sleeps, the very next command runs immediately, and
+the clock counts down alongside the flow.
+
+```python
+runtime.wait(seconds=90)
+runtime.generate(visible=True)   # runs at once; the wait did not hold it up
+
+if runtime.waiting:
+    runtime.append(f"{int(runtime.wait_remaining)} seconds of the hour remain.")
+```
+
+A flow reads the state through three properties:
+
+- `runtime.waiting` -- `True` while the wait is still running down.
+- `runtime.wait_remaining` -- seconds left, `0.0` when nothing is waiting.
+- `runtime.wait_seconds` -- the duration the last `wait` asked for.
+
+Wait mode **expires on its own**. "Is a wait still running?" is worked out from
+the clock whenever it is asked, so there is no timer thread and nothing to
+clear; a flow that checks after the deadline simply sees `False`. Issuing
+another `wait` replaces the first, and `runtime.wait(seconds=0)` cancels one.
+
+The state is ephemeral by design: it is wall-clock state rather than
+conversation state, so it is not saved to a session file, and loading,
+rewriting or forking a session clears it -- the countdown belonged to the flow
+that was discarded, and a replayed flow issues its own.
+
+In the web UI an active wait shows as a countdown in the top bar; see
+[Web UI](#web-ui).
 
 ## Special Commands Framework
 
@@ -228,14 +262,21 @@ Note that the called actors in the UI nest only five levels deep. You can nest `
 The backend (`fictive/web/`) runs a flow. A flow suspends when it needs a human answer. `next(flow)` runs the flow up to the first `InputRequest`. In the web interface, instead of waiting on a `yield from ask(...)` statement, the flow waits to receive a `POST` request from the UI.
 
 
+When a flow is in [wait mode](#wait-mode), the top bar shows a countdown
+alongside a clock symbol that hides and re-shows it. The countdown ticks in the
+browser: a turn is one synchronous request, so the backend sends the seconds
+remaining with each response and the page counts down from that reading until
+the next one arrives.
+
 Two things that are required within a `flow` function for the Web UI to work:
 - `generate(visible=True)` marks the one generation the reader should see
 - `ask(..., content=False)` marks a prompt as a human input cue -- a terminal prints it, the web UI shows its own input box instead.
 
 ### Writing a scenario for the web UI
 
-`--scenario` takes a Python module: a `.py` file, or a directory containing `fictive_scenario.py`. The module answers a small contract, and the backend builds the actors itself so one pipeline chosen on the command line serves the
-whole scenario:
+`--scenario` takes a Python module: a `.py` file, or a directory containing `fictive_scenario.py`. The following names and functions are required for the scenario to play correctly on the web UI:
+
+TODO: make it so that we can define actors in the main scenario window, so that we can use different pipelines for different actors
 
 ```python
 NAME = "evil_AI"                      # optional; defaults to the directory name
@@ -246,8 +287,20 @@ def resume_flow(runtime): ...         # optional; used instead of `flow` on a re
 def register_commands(runtime): ...   # optional; see Special Commands, below
 ```
 
-`examples/evil_AI` is laid out this way: `config.py` owns the paths and the argument parser, `flows.py` the flows, `fictive_scenario.py` the contract above, and `main.py` remains the terminal entry point driving the same `flow` through `drive_flow`. The module's own directory goes on `sys.path` before it is imported, so a scenario package can keep importing its siblings flat (`from config import ...`). One consequence: those flat names are global, so one
-process serves one scenario.
+In the example scenario `examples/evil_AI/fictive_scenario.py`:
+
+```python
+from config import ACTOR_TYPES, SCENARIO_DIR
+from flows import flow
+
+NAME = "evil_AI"
+MAIN_ACTOR = "generator"
+
+__all__ = ["ACTOR_TYPES", "MAIN_ACTOR", "NAME", "SCENARIO_DIR", "flow"]
+```
+
+- `config.py` contains `ACTOR_TYPES`
+- `flows.py` contains all the sub-actor flows, as well as the main `flow`
 
 **Resuming.** A session file holds actor histories, the store and the callstack, but not a flow's position -- that lives in a Python generator. So resuming restores the state and starts the flow again against it. The backend sets the
 store variable `RESUMED_STORE_KEY` (`"_fictive_resumed"`) first, so a flow can
@@ -262,6 +315,11 @@ A scenario that needs more than a branch can define `resume_flow(runtime)`
 instead. Either way the transcript is rebuilt from the main actor's history, and
 says plainly that frames from before the save are not in the file.
 
+### The Main Flow
+
+```python
+def flow(runtime: Runtime):
+    
 ### Rewriting a message, and forking a conversation
 
 Hovering a reader message in the transcript reveals **Rewrite** and **Fork**.
@@ -291,6 +349,30 @@ which is why a session resumed from a file has real messages with nothing to
 rewind to until it takes a turn of its own, and why only the 50 most recent are
 kept. And a rewrite works on a session whose flow has finished or failed, which
 makes it the way out of a turn that broke: the flow is replaced either way.
+
+### Deleting a session
+
+Each row in the session rail carries a trash control, revealed on hover or
+keyboard focus. Deleting asks once, in the row itself, and then removes
+everything behind that row: the live run if there is one, and the session file
+on disk if the session was saved. One control for both, because the rail shows
+one row per session -- a live run that has been saved is not also listed under
+the files -- so there is nothing a delete could ambiguously mean.
+
+A session that is mid-turn is not deleted; the request comes back with the same
+`409` a concurrent message would. Deleting the session you are looking at moves
+the view to the next live one, or starts a fresh session if that was the last.
+
+### Reading what a command was given
+
+Steps in the transcript name what their command was handed: a `system` or an
+`input-from` is usually written as a path, and the step showed the file name.
+Both now carry the resolved text as well, shown in full under the step and
+collapsible from the line above it, which also reports its length. The text is
+read off the actor once the command has run rather than by resolving the path a
+second time, so what a step shows is what the actor actually received --
+enclosing prompts applied, store lookups resolved, and a literal string handled
+no differently from a file.
 
 **Two guard rails.** A turn that issues 400 commands without asking for input
 is stopped and reported as an error, because a generator that never yields would

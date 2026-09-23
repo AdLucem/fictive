@@ -174,6 +174,42 @@ Params:
 - n: Optional[int] = "If specified, print n'th previous message"
 ```
 
+### Command: `wait`
+
+Enter wait mode for a given number of seconds.
+
+The command does **not** block. It records a deadline and returns, so the very
+next command runs immediately while the clock counts down in the background --
+there is no sleep, no timer thread and no callback when it ends. Wait mode is
+something a flow *reads*, not something that interrupts it.
+
+Wait mode expires on its own: "is a wait still running?" is computed from the
+clock each time it is asked, so nothing has to clear it. Issuing a second
+`wait` replaces the first, and `seconds: 0` cancels an active wait.
+
+The state is deliberately ephemeral -- it is wall-clock state, not conversation
+state, so it is not written to a session file and a restored session starts
+with no wait running.
+
+```
+Params:
+
+- seconds: float = "Required. How long wait mode lasts. Must be a non-negative number; 0 cancels an active wait."
+```
+
+Example:
+
+```json
+{
+  "cmd": "wait",
+  "seconds": 90
+}
+```
+
+From a library-runtime flow the same command is `runtime.wait(seconds=90)`, and
+the state is read back with `runtime.waiting`, `runtime.wait_remaining` and
+`runtime.wait_seconds`. See `DOCS.md`.
+
 ### Command: `cond`
 
 Conditional i.e: if/else. (works more like a switch/case in practice). Define conditions (including an optional `else` condition), with a block of statements to be executed for each condition.

@@ -105,6 +105,7 @@ Every path comes from `fictive/web/app.py`:
 | `POST` | `/api/sessions/{id}/rewrite` | `{"message_seq": n, "text": "..."}` — replace a reader message and run on from it |
 | `POST` | `/api/sessions/{id}/fork` | `{"message_seq": n, "text": "..."}` — branch a new session at a reader message |
 | `POST` | `/api/sessions/{id}/save` | write the session file |
+| `DELETE` | `/api/sessions/{id}` | forget a session: the live run, its session file, or both |
 | `GET` | `/api/health` | scenario, pipeline, whether the pipeline can stream |
 
 A turn is one synchronous `POST`: the backend resumes the scenario's flow
@@ -123,7 +124,7 @@ src/
   theme.css               Material 3 dark scheme, purple source
   App.tsx                 session state, and the one place calls are made
   components/
-    SessionsRail.tsx      live and saved sessions, search, new session
+    SessionsRail.tsx      live and saved sessions, search, new session, delete
     Transcript.tsx        messages and top-level flow bars
     FlowBar.tsx           one callstack frame; recursive, capped at depth 5
     Composer.tsx          the reader's turn
@@ -161,6 +162,29 @@ src/
 - **Step numbers are command counts.** A flow-driven actor has no instruction
   list, so `step_pointers` and a node's `step` report how many commands that
   actor has issued rather than a position in a list.
+- **Deleting a session.** Each row in the rail carries a trash control, shown
+  on hover or keyboard focus. It asks once, in the row itself rather than in a
+  modal — the call removes a file from disk and cannot be undone, and the rows
+  are small and close together, so a stray click is the mistake worth making
+  impossible. Confirming deletes everything behind the row: the live run, and
+  the session file if the session was saved. One control covers both because
+  the rail lists one row per session — a live run that has been saved is
+  filtered out of the saved group — so a delete has only one thing it can mean.
+
+  A session running a turn answers `409`, the same as a concurrent message, and
+  the backend validates the id before joining it to a path. Deleting the open
+  session moves the view to the next live one, or starts a fresh session if
+  that was the last, so the app is never left with nothing to show.
+
+- **Full prompts on a step.** A `system` or an `input-from` is nearly always
+  written as a path, and the step used to show only the file's name. The
+  backend now also sends `detail_text`: the whole text the command was handed,
+  read off the actor once the command has run rather than by resolving the path
+  again, so enclosing prompts and store lookups show as what the actor actually
+  received. `Step` in `FlowBar.tsx` renders it open, with the detail line above
+  it as the toggle and a word count beside it; the block scrolls inside a
+  bounded height, so one long system prompt cannot push the transcript around.
+
 - **Rewriting and forking.** Hovering a reader message reveals **Rewrite** and
   **Fork**. Both open the message in an editor; the difference is what happens
   to the turns after it. A rewrite runs the same session on from that message,
