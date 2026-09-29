@@ -2,6 +2,16 @@
 
 This is a minimal tabletop roleplaying game implementation. If you're familiar with [Dungeons and Dragons](https://en.wikipedia.org/wiki/Dungeons_%26_Dragons), then you might be familiar with some of the mechanics of this game. Instead of individually programming each rule, we rely on LLMs to interpret rules and update the game state. 
 
+## Running
+
+Every actor but the Generator must reply in JSON, so the `mock` pipeline can't run this scenario; use a real model. From the repository root:
+
+```bash
+python -m fictive.web --scenario examples/ttrpg --pipeline-type openai --model <provider/model>
+```
+
+See `ui/README.md` for running the web UI alongside it.
+
 ## Game, Rules and Character Sheets
 
 To keep it simple, instead of adapting a full TTRPG ruleset, we will have a very simple character sheet and ruleset.
@@ -343,12 +353,3 @@ Both live states are kept in the interpreter's store as JSON, so saving, rewriti
 - `flows/<actor>/`: each actor's flows. `flows/generator/` holds `play`, the entry flow; `flows/common.py` holds helpers the sub-actors share.
 - `prompts/<actor>/<actor>_<key>.txt`: each actor's system prompt and task prompt templates.
 
-## Running
-
-Every actor but the Generator must reply in JSON, so the `mock` pipeline can't run this scenario; use a real model. From the repository root:
-
-```bash
-python -m fictive.web --scenario examples/ttrpg --pipeline-type openai --model <provider/model>
-```
-
-See `ui/README.md` for running the web UI alongside it.
