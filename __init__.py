@@ -19,6 +19,7 @@ for _submodule_name in (
     "custom_actors",
     "data_structures",
     "debugger",
+    "goals",
     "interpreter",
     "library_runtime",
     "bedrock_runtime",

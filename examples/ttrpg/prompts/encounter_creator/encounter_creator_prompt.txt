@@ -1,0 +1,32 @@
+## The adventure
+
+$premise
+
+Goal: $goal
+The adventure is over when: $criteria
+
+## Progress so far
+
+$progress
+
+## Game state
+
+$game
+
+## Locations
+
+$locations
+
+## Declared flags
+
+$flags
+
+## Roster
+
+$roster
+
+## The story so far (most recent part)
+
+$scene
+
+Plan the next encounter, with at most $max_steps steps.

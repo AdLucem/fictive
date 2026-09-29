@@ -1,0 +1,21 @@
+## Characters in the scene
+
+$sheets
+
+## The player's latest message
+
+$message
+
+## The game master's ruling
+
+$ruling
+
+## The check
+
+$check
+
+## The story so far (most recent part)
+
+$scene
+
+Propose the changes to these characters' sheets.

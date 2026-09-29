@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import type { Scenario, Session, SessionsIndex } from "./types";
+import type { Scenario, Session, SessionsIndex, ViewMode } from "./types";
+import { ActorHistoryView } from "./components/ActorHistoryView";
+import { ActorMenu } from "./components/ActorMenu";
 import { Composer } from "./components/Composer";
 import { Inspector } from "./components/Inspector";
 import { SessionsRail } from "./components/SessionsRail";
 import { Transcript } from "./components/Transcript";
 import { WaitTimer } from "./components/WaitTimer";
-import { Save, Stack } from "./components/icons";
+import { Save } from "./components/icons";
+
+const MODE_KEY = "fictive.viewMode";
+
+/** A per-browser preference, so storage that throws or is empty means `dev`. */
+function readMode(): ViewMode {
+  try {
+    return window.localStorage.getItem(MODE_KEY) === "live" ? "live" : "dev";
+  } catch {
+    return "dev";
+  }
+}
 
 interface Toast {
   text: string;
@@ -21,6 +34,18 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [mode, setMode] = useState<ViewMode>(readMode);
+  /** The actor whose history fills the chat window; `null` is the main chat. */
+  const [viewActor, setViewActor] = useState<string | null>(null);
+
+  const onModeChange = (next: ViewMode) => {
+    setMode(next);
+    try {
+      window.localStorage.setItem(MODE_KEY, next);
+    } catch {
+      // Not remembered across reloads; the switch itself still works.
+    }
+  };
 
   const refreshIndex = useCallback(async () => {
     try {
@@ -68,6 +93,39 @@ export default function App() {
     },
     [refreshIndex],
   );
+
+  // A timed request (e.g. a punishment wait) is timed out by the backend
+  // itself; this post, when the countdown ends, fetches what that turn said
+  // (or runs it, if it is due and has not run). The slack keeps the post from
+  // arriving ahead of the backend's deadline.
+  useEffect(() => {
+    if (!session || busy || !session.awaiting_input || session.input_timeout === null) return;
+    const id = session.id;
+    const timer = window.setTimeout(() => {
+      void run(() => api.timeoutInput(id));
+    }, session.input_timeout * 1000 + 250);
+    return () => window.clearTimeout(timer);
+  }, [session, busy, run]);
+
+  // A background tab may have slept through that timer while the backend ran
+  // the turn, so coming back to the tab picks up whatever happened meanwhile.
+  useEffect(() => {
+    if (!session || busy) return;
+    const id = session.id;
+    const catchUp = () => {
+      if (document.visibilityState !== "visible") return;
+      api
+        .session(id)
+        .then((latest) => setSession((current) => (current?.id === id ? latest : current)))
+        .catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", catchUp);
+    window.addEventListener("focus", catchUp);
+    return () => {
+      document.removeEventListener("visibilitychange", catchUp);
+      window.removeEventListener("focus", catchUp);
+    };
+  }, [session, busy]);
 
   const onSend = (text: string) => {
     if (!session) return;
@@ -169,6 +227,13 @@ export default function App() {
     );
   }
 
+  // Another session need not have the same actor, and a history view that
+  // silently showed nothing would read as an empty actor, so it falls back.
+  const viewedHistory =
+    viewActor === null
+      ? null
+      : (session.histories ?? []).find((history) => history.name === viewActor) ?? null;
+
   return (
     <div className="app">
       <SessionsRail
@@ -180,6 +245,8 @@ export default function App() {
         onOpen={onOpen}
         onResume={onResume}
         onDelete={onDelete}
+        mode={mode}
+        onModeChange={onModeChange}
       />
 
       <main className="main">
@@ -218,12 +285,19 @@ export default function App() {
           >
             <Save />
           </button>
-          <button type="button" className="icon-button state-layer" aria-label="Scenario actors" disabled>
-            <Stack />
-          </button>
+          <ActorMenu
+            histories={session.histories ?? []}
+            mainActor={session.main_actor}
+            current={viewedHistory ? viewedHistory.name : null}
+            onPick={setViewActor}
+          />
         </header>
 
-        <Transcript session={session} busy={busy} onRewrite={onRewrite} onFork={onFork} />
+        {viewedHistory ? (
+          <ActorHistoryView history={viewedHistory} mainActor={session.main_actor} busy={busy} />
+        ) : (
+          <Transcript session={session} mode={mode} busy={busy} onRewrite={onRewrite} onFork={onFork} />
+        )}
 
         {toast ? (
           <div className={`snackbar${toast.tone === "error" ? " snackbar--error" : ""}`} role="status">

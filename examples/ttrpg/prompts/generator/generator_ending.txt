@@ -1,0 +1,3 @@
+The adventure is over. $outcome
+
+Narrate how it ends for the player character, in one or two short paragraphs, drawing on what just happened. Close the story; don't invite the player to act.

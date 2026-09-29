@@ -1,0 +1,8 @@
+The adventure begins. Open it for the player.
+
+Premise: $premise
+The player character's goal: $goal
+The player character: $pc
+Starting location: $location
+
+Set the scene in two or three short paragraphs: who the player character is, where they are, and what they have come to do. End on a moment where the player can act.

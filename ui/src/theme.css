@@ -87,6 +87,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rail__head { padding: 20px 16px 12px; display: flex; flex-direction: column; gap: 16px; }
 .rail__brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
 .rail__list { flex-grow: 1; overflow: auto; padding: 4px 12px 12px; }
+/* Settings: a view preference, so it sits with the rail rather than the session. */
+.settings { padding: 4px 16px 14px; border-top: 1px solid var(--level-2); }
+.settings__title { margin: 12px 8px 10px; }
+.segmented { display: flex; border: 1px solid var(--outline-variant); border-radius: 20px; overflow: hidden; }
+.segmented__option {
+  flex: 1; height: 36px; border: 0; background: transparent; color: var(--on-surface);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.segmented__option + .segmented__option { border-left: 1px solid var(--outline-variant); }
+.segmented__option[aria-checked="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
+.settings__hint { margin: 8px 8px 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
 .rail__foot { padding: 14px 24px 18px; border-top: 1px solid var(--level-2); font-family: var(--mono); font-size: 11px; color: var(--on-surface-variant); line-height: 1.7; }
 
 .fab {
@@ -271,6 +283,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .flow__body { border-top: 1px solid var(--outline-variant); padding: 14px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
 .flow__spine { padding-left: 16px; border-left: 1px solid var(--outline-variant); display: flex; flex-direction: column; gap: 10px; }
 
+/* --------------------------------------------------------- actor picker */
+
+/* The app bar's view picker, and the actor history it swaps into the chat. */
+.actor-menu { position: relative; flex-shrink: 0; }
+.actor-menu__trigger { display: inline-flex; align-items: center; gap: 8px; padding: 0 14px 0 12px; }
+.actor-menu__label { font-family: var(--mono); font-size: 13px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actor-menu__chevron { transform: rotate(90deg); transition: transform 0.15s ease; }
+.actor-menu__trigger[aria-expanded="true"] .actor-menu__chevron { transform: rotate(-90deg); }
+.actor-menu__list {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 240px; max-height: 60vh; overflow: auto;
+  padding: 8px 0; border-radius: var(--shape-sm); background: var(--level-3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column;
+}
+.actor-menu__item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  height: 44px; padding: 0 16px; border: 0; background: transparent; text-align: left; color: var(--on-surface);
+}
+.actor-menu__item:hover { background: var(--level-4); }
+.actor-menu__item[aria-checked="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
+.actor-menu__name { font-size: 14px; font-weight: 500; white-space: nowrap; }
+.actor-menu__meta { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.actor-menu__divider { height: 1px; margin: 6px 0; background: var(--outline-variant); }
+
+.history-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--outline-variant); }
+.history-block { display: flex; flex-direction: column; gap: 8px; }
+
 .var-chip {
   font-family: var(--mono); font-size: 12px; height: 24px; display: inline-flex; align-items: center;
   padding: 0 8px; border-radius: var(--shape-sm); border: 1px solid var(--outline-variant); color: #d8cfe6;
@@ -353,6 +391,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .frame__name { font-size: 14px; font-weight: 500; }
 .frame__meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .frame--working { box-shadow: inset 0 0 0 1.5px var(--primary); }
+
+.goal-tree, .goal__children { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.goal__children { margin-top: 6px; border-left: 1px solid var(--outline-variant); }
+.goal__card { display: flex; flex-direction: column; gap: 5px; padding: 10px 14px; border-radius: var(--shape-md); background: var(--level-1); }
+.goal__card--closed { opacity: 0.62; }
+.goal__head { display: flex; align-items: center; gap: 8px; }
+.goal__status { font-family: var(--mono); font-size: 10px; height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: var(--shape-sm); background: var(--secondary-container); color: var(--on-secondary-container); }
+.goal__status--active { background: var(--primary-container); color: var(--on-primary-container); }
+.goal__status--done { background: var(--tertiary-container); color: var(--on-tertiary-container); }
+.goal__status--failed { background: var(--error-container); color: var(--on-error-container); }
+.goal__status--abandoned { background: transparent; border: 1px solid var(--outline-variant); color: var(--muted); }
+.goal__id, .goal__meta { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.goal__text { font-size: 13px; line-height: 1.45; color: var(--on-surface); word-break: break-word; }
+.goal__criteria { font-size: 12px; line-height: 1.45; color: var(--on-surface-variant); }
+.goal__notes, .goal-events { font-size: 12px; line-height: 1.5; color: var(--on-surface-variant); }
+.goal-events { margin-top: 12px; }
+.goal__notes summary, .goal-events summary { cursor: pointer; color: var(--muted); }
+.goal__notes ul, .goal-events ul { margin: 6px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; word-break: break-word; }
 
 .store-table { border-radius: var(--shape-md); overflow: hidden; background: var(--level-1); }
 .store-row { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-bottom: 1px solid var(--level-2); }

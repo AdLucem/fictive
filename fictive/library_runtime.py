@@ -32,6 +32,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
+import select
+import sys
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,8 +95,16 @@ class CommandRestart(Exception):
 
 class CommandExit(Exception):
     """Raised by a command handler to exit the current flow.
-    
+
     The flow driver should catch this and exit the scenario.
+    """
+
+
+class CommandTimeout(Exception):
+    """Raised by a command handler to end the pending timed `ask` as if it timed out.
+
+    `ask` returns None, exactly as when `INPUT_TIMEOUT` arrives. At an untimed
+    `ask` it is ignored and the prompt repeats.
     """
 
 
@@ -120,6 +132,20 @@ class InputRequest:
     # (`drive_flow`) shows it regardless, since for a CLI that text *is* the
     # prompt.
     content: bool = True
+
+    # Seconds the host should wait for an answer before sending INPUT_TIMEOUT
+    # into the flow instead; None waits indefinitely.
+    timeout: Optional[float] = None
+
+
+class _InputTimeout:
+    """What a host sends into a flow when a timed `ask` went unanswered."""
+
+    def __repr__(self) -> str:
+        return "INPUT_TIMEOUT"
+
+
+INPUT_TIMEOUT = _InputTimeout()
 
 
 # A flow is a generator that yields InputRequests and receives answers.
@@ -394,6 +420,23 @@ class Runtime:
         if actor_name is not None:
             kwargs["actor_name"] = actor_name
         return self.cmd("print-latest", **kwargs)
+
+    def show_reply(self) -> Optional[str]:
+        """Print the reply the last visible `generate` produced, and return it.
+
+        This is how a flow says "the reader sees this now". `show_latest` is the
+        wrong tool for it: a `Generator` actor overrides `get_latest_output` to
+        return its whole scene, whereas `last_visible` holds only the turn just
+        generated. A host that shows only chosen replies (the web UI's live mode)
+        treats this call as the signal. Returns None when nothing has been
+        generated visibly yet.
+        """
+        if self.last_visible is None:
+            return None
+        actor_name, reply = self.last_visible
+        self.last_displayed_actor = actor_name
+        print(reply)
+        return reply
 
     # ------------------------------------------------------------------
     # actor entry / exit
@@ -737,6 +780,7 @@ def ask(
     history: bool = True,
     enclosing_prompt: Optional[str] = None,
     content: bool = True,
+    timeout: Optional[float] = None,
 ) -> Flow:
     """Suspend the scenario until a human answers, then record the answer.
 
@@ -750,7 +794,14 @@ def ask(
     not display that cue as an AI-authored message; a genuine clarifying
     question (the default, `content=True`) still needs to reach the human, so it
     is shown.
+
+    With `timeout` (seconds), the host sends `INPUT_TIMEOUT` if no answer comes
+    in time, and `ask` returns None without recording anything. The deadline is
+    fixed when `ask` starts, so a slash command answered in between does not
+    extend it. A command handler that raises `CommandTimeout` ends a timed `ask`
+    the same way, at once.
     """
+    deadline = None if timeout is None else time.monotonic() + timeout
     while True:
         request = InputRequest(
             actor_name=rt.working_actor_name,
@@ -759,9 +810,12 @@ def ask(
             history=history,
             enclosing_prompt=enclosing_prompt,
             content=content,
+            timeout=None if deadline is None else max(0.0, deadline - time.monotonic()),
         )
         answer = yield request
-        
+        if answer is INPUT_TIMEOUT:
+            return None
+
         # Check for command prefix
         if answer.startswith('/'):
             # Parse command: /command args
@@ -774,6 +828,9 @@ def ask(
                     rt.commands[cmd](rt, args)
                 except (CommandRestart, CommandExit):
                     raise
+                except CommandTimeout:
+                    if deadline is not None:
+                        return None
                 except Exception as e:
                     print(f"Command error: {e}")
                 continue  # Command executed, re-prompt
@@ -825,6 +882,22 @@ def call_actor(
 # ----------------------------------------------------------------------
 
 
+def _input_with_timeout(prompt: str, timeout: float):
+    """`input()` that gives up after `timeout` seconds, returning INPUT_TIMEOUT.
+
+    Uses `select` on stdin, which works on POSIX terminals only; elsewhere the
+    timeout is ignored and this blocks like `input()`.
+    """
+    if os.name == "nt" or not sys.stdin.isatty():
+        return input(prompt)
+    print(prompt, end="", flush=True)
+    ready, _, _ = select.select([sys.stdin], [], [], max(0.0, timeout))
+    if not ready:
+        print()
+        return INPUT_TIMEOUT
+    return sys.stdin.readline().rstrip("\n")
+
+
 def drive_flow(
     flow: Flow,
     input_fn: Optional[Callable[[InputRequest], str]] = None,
@@ -840,7 +913,10 @@ def drive_flow(
 
     if input_fn is None:
         def input_fn(request: InputRequest) -> str:
-            return input(f"{request.actor_name}: {request.prompt} ")
+            prompt = f"{request.actor_name}: {request.prompt} "
+            if request.timeout is None:
+                return input(prompt)
+            return _input_with_timeout(prompt, request.timeout)
 
     try:
         request = next(flow)

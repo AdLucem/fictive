@@ -1,5 +1,6 @@
 import type { Session } from "../types";
 import { Close } from "./icons";
+import { GoalsPanel } from "./GoalsPanel";
 
 interface Props {
   session: Session;
@@ -12,7 +13,7 @@ export function Inspector({ session, busy, onClose, onSave }: Props) {
   return (
     <aside className="inspector">
       <div className="inspector__head">
-        <h2>Store &amp; call stack</h2>
+        <h2>{session.goals ? "Goals, store & call stack" : "Store & call stack"}</h2>
         <span style={{ flexGrow: 1 }} />
         <button type="button" className="icon-button state-layer" aria-label="Close inspector" onClick={onClose}>
           <Close />
@@ -20,6 +21,8 @@ export function Inspector({ session, busy, onClose, onSave }: Props) {
       </div>
 
       <div className="inspector__body">
+        {session.goals ? <GoalsPanel goals={session.goals} /> : null}
+
         <section>
           <h3 className="section__title">
             Call stack · {session.callstack.length} frame{session.callstack.length === 1 ? "" : "s"}

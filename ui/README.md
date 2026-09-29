@@ -104,6 +104,7 @@ Every path comes from `fictive/web/app.py`:
 | `POST` | `/api/sessions/{id}/messages` | send the reader's turn and run until the scenario asks again |
 | `POST` | `/api/sessions/{id}/rewrite` | `{"message_seq": n, "text": "..."}` — replace a reader message and run on from it |
 | `POST` | `/api/sessions/{id}/fork` | `{"message_seq": n, "text": "..."}` — branch a new session at a reader message |
+| `POST` | `/api/sessions/{id}/timeout` | catch up on a timed question that ran out: runs its timeout turn if the backend has not already, else returns the session as it is; the app posts this when `input_timeout` runs out |
 | `POST` | `/api/sessions/{id}/save` | write the session file |
 | `DELETE` | `/api/sessions/{id}` | forget a session: the live run, its session file, or both |
 | `GET` | `/api/health` | scenario, pipeline, whether the pipeline can stream |
@@ -128,7 +129,8 @@ src/
     Transcript.tsx        messages and top-level flow bars
     FlowBar.tsx           one callstack frame; recursive, capped at depth 5
     Composer.tsx          the reader's turn
-    Inspector.tsx         callstack, store, session file
+    Inspector.tsx         goals, callstack, store, session file
+    GoalsPanel.tsx        the scene's goal tree, focus highlighted
     icons.tsx
 ```
 

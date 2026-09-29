@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { MessageNode, Session } from "../types";
+import type { MessageNode, Session, TranscriptNode, ViewMode } from "../types";
 import { FlowBar, Step } from "./FlowBar";
 import { ReaderMessage } from "./ReaderMessage";
 
@@ -19,19 +19,42 @@ function Message({ node, mainActor }: { node: MessageNode; mainActor: string }) 
   );
 }
 
+/**
+ * What live mode draws: the reader's turns and every reply marked `shown`.
+ * The backend puts shown replies at the top level, but a flow's children are
+ * searched too so nothing the flow chose to show can be lost inside a bar.
+ */
+function liveTurns(nodes: TranscriptNode[]): MessageNode[] {
+  const out: MessageNode[] = [];
+  for (const node of nodes) {
+    if (node.kind === "message") {
+      if (node.role === "user" || node.shown) out.push(node);
+    } else if (node.kind === "flow") {
+      out.push(...liveTurns(node.children));
+    }
+  }
+  return out;
+}
+
 interface Props {
   session: Session;
+  mode: ViewMode;
   busy: boolean;
   onRewrite: (messageSeq: number, text: string) => void;
   onFork: (messageSeq: number, text: string) => void;
 }
 
-export function Transcript({ session, busy, onRewrite, onFork }: Props) {
+export function Transcript({ session, mode, busy, onRewrite, onFork }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
+
+  const turns = useMemo(
+    () => (mode === "live" ? liveTurns(session.turns) : session.turns),
+    [mode, session.turns],
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [session.turns.length, busy]);
+  }, [turns.length, busy]);
 
   const branchable = useMemo(() => new Set(session.branch_points), [session.branch_points]);
 
@@ -49,7 +72,7 @@ export function Transcript({ session, busy, onRewrite, onFork }: Props) {
   return (
     <div className="transcript">
       <div className="transcript__inner">
-        {session.turns.map((node) =>
+        {turns.map((node) =>
           node.kind === "message" ? (
             node.role === "user" ? (
               <ReaderMessage

@@ -184,6 +184,9 @@ class MessageNode:
     seq: int
     command: str
     step: Optional[int] = None
+    # True once the flow has shown this reply with `Runtime.show_reply`. The
+    # UI's live mode draws only these (and the reader's own turns).
+    shown: bool = False
 
     def to_json(self) -> dict:
         return {
@@ -195,6 +198,7 @@ class MessageNode:
             "command": self.command,
             "step": self.step,
             "depth": 0,
+            "shown": self.shown,
         }
 
 
@@ -243,6 +247,15 @@ class TranscriptRecorder:
                 self.open_flows[-1].children.append(node)
             else:
                 self.turns.append(node)
+
+    def append_turn(self, node) -> None:
+        """Append at the top level whatever frames are open.
+
+        A `MessageNode` belongs to the conversation, not to a called actor's
+        frame, and a flow bar has no place to draw one.
+        """
+        with self.lock:
+            self.turns.append(node)
 
     def count_command(self, actor_name: str) -> int:
         with self.lock:
@@ -414,6 +427,9 @@ class TranscriptRecorder:
                         text=_truncate(text),
                         seq=self.next_seq(),
                         command="load-conversation",
+                        # The file does not say which replies were shown; every
+                        # reply the conversation holds is the likeliest answer.
+                        shown=(role == "assistant"),
                     )
                 )
             self.turns.append(

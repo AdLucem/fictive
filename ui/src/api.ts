@@ -36,6 +36,9 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  /** The reader let a timed request run out; the flow runs on without an answer. */
+  timeoutInput: (id: string) => request<Session>(`/api/sessions/${id}/timeout`, { method: "POST" }),
+
   /** Replace one reader message; every turn after it is discarded. */
   rewriteMessage: (id: string, messageSeq: number, text: string) =>
     request<Session>(`/api/sessions/${id}/rewrite`, {

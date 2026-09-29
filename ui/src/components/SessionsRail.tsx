@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Scenario, SessionsIndex } from "../types";
+import type { Scenario, SessionsIndex, ViewMode } from "../types";
 import { Lighthouse, Plus, Search, Trash } from "./icons";
 
 interface Props {
@@ -11,7 +11,14 @@ interface Props {
   onOpen: (id: string) => void;
   onResume: (savedId: string) => void;
   onDelete: (id: string) => void;
+  mode: ViewMode;
+  onModeChange: (mode: ViewMode) => void;
 }
+
+const MODES: { value: ViewMode; label: string; hint: string }[] = [
+  { value: "dev", label: "Dev", hint: "Every command and called actor, inline." },
+  { value: "live", label: "Live", hint: "Only your turns and the replies the flow shows." },
+];
 
 interface RowProps {
   title: string;
@@ -113,6 +120,8 @@ export function SessionsRail({
   onOpen,
   onResume,
   onDelete,
+  mode,
+  onModeChange,
 }: Props) {
   const [query, setQuery] = useState("");
   // At most one row is ever asking to be confirmed, so this is the id rather
@@ -225,6 +234,27 @@ export function SessionsRail({
           </>
         ) : null}
       </nav>
+
+      <section className="settings" aria-labelledby="settings-title">
+        <h2 id="settings-title" className="rail__group settings__title">
+          Settings
+        </h2>
+        <div className="segmented" role="radiogroup" aria-label="View mode">
+          {MODES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={mode === option.value}
+              className="segmented__option state-layer"
+              onClick={() => onModeChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="settings__hint">{MODES.find((option) => option.value === mode)?.hint}</p>
+      </section>
 
       <div className="rail__foot">
         scenario <span style={{ color: "var(--primary)" }}>{scenario?.name ?? "…"}</span>

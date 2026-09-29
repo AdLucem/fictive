@@ -80,6 +80,7 @@ def create_app(
     pipeline_type: str = "mock",
     model: str = "mock",
     ui_dist: str | pathlib.Path = DEFAULT_UI_DIST,
+    model_fast: Optional[str] = None,
     **pipeline_kwargs,
 ) -> FastAPI:
     spec = RuntimeScenarioSpec(scenario)
@@ -87,6 +88,15 @@ def create_app(
     pipeline = pipeline_from_config(
         PipelineConfig(model=model, pipeline_type=pipeline_type, **pipeline_kwargs)
     )
+    actor_pipelines = pipeline
+    if model_fast:
+        fast_pipeline = pipeline_from_config(
+            PipelineConfig(model=model_fast, pipeline_type=pipeline_type, **pipeline_kwargs)
+        )
+        actor_pipelines = {
+            name: fast_pipeline if "router" in name else pipeline
+            for name in spec.actor_names
+        }
     # Scene commands say what they did by printing. One tee lets a turn collect
     # its own output without any thread stealing another's stdout.
     tee = install_tee()
@@ -172,7 +182,7 @@ def create_app(
     @app.post("/api/sessions")
     def create_session(body: NewSession | None = None) -> dict:
         body = body or NewSession()
-        session = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
+        session = RuntimeChatSession(spec, actor_pipelines, storage_dir, tee, title=body.title)
         sessions[session.id] = session
         try:
             if body.load_session_id:
@@ -204,6 +214,16 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return session.to_json()
 
+    @app.post("/api/sessions/{session_id}/timeout")
+    def post_timeout(session_id: str) -> dict:
+        """A timed request ran out: run its timeout turn if the backend has not yet, and return the session."""
+        session = get_session(session_id)
+        try:
+            session.send_timeout()
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return session.to_json()
+
     @app.post("/api/sessions/{session_id}/rewrite")
     def rewrite_message(session_id: str, body: Rewrite) -> dict:
         session = get_session(session_id)
@@ -227,7 +247,7 @@ def create_app(
         except BranchPointUnknown as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        fork = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
+        fork = RuntimeChatSession(spec, actor_pipelines, storage_dir, tee, title=body.title)
         sessions[fork.id] = fork
         try:
             fork.fork_from(source, body.message_seq, body.text)
@@ -322,6 +342,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["mock", "sglang", "transformers", "vllm", "minimax", "anthropic", "openai"],
     )
     parser.add_argument("--model", default="mock")
+    parser.add_argument(
+        "--model-fast",
+        default=None,
+        help="Model for every actor with 'router' in its name; --model serves the rest.",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ui-dist", default=str(DEFAULT_UI_DIST))
@@ -358,6 +383,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         storage_dir=args.storage_dir,
         pipeline_type=args.pipeline_type,
         model=args.model,
+        model_fast=args.model_fast,
         ui_dist=args.ui_dist,
         token=args.token,
         base_url=args.base_url,

@@ -14,7 +14,9 @@ from .library_runtime import (
     DebugQuit,
     CommandRestart,
     CommandExit,
+    CommandTimeout,
     Flow,
+    INPUT_TIMEOUT,
     InputRequest,
     RESUMED_STORE_KEY,
     Runtime,
@@ -22,6 +24,8 @@ from .library_runtime import (
     call_actor,
     drive_flow,
 )
+from . import goals
+from .goals import GOALS_STORE_KEY
 from .bedrock_runtime import BedrockRuntime
 from .pipelines import build_bedrock_pipeline
 from .pipelines.bedrock import BedrockPipeline
@@ -51,9 +55,13 @@ __all__ = [
     "DebugQuit",
     "CommandRestart",
     "CommandExit",
+    "CommandTimeout",
     "Flow",
+    "INPUT_TIMEOUT",
     "InputRequest",
     "RESUMED_STORE_KEY",
+    "GOALS_STORE_KEY",
+    "goals",
     "ask",
     "call_actor",
     "drive_flow",

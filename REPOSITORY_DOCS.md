@@ -138,10 +138,28 @@ helpers and SGLang integration.
   `Fork` (`ui/src/components/ReaderMessage.tsx`), offered on the messages named
   in the session's `branch_points`. Each row in the session rail carries a
   delete control that asks once in the row itself
-  (`ui/src/components/SessionsRail.tsx`). `ui/src/components/WaitTimer.tsx` is
+  (`ui/src/components/SessionsRail.tsx`). The rail also holds a Settings
+  section with the `dev` / `live` view mode (`ViewMode` in `ui/src/types.ts`,
+  kept in `App.tsx` and remembered in `localStorage`). `live` is a client-side
+  filter in `Transcript.tsx`: it draws only reader messages and message nodes
+  whose `shown` flag `Runtime.show_reply` set, and hides steps and flow bars;
+  the backend records the same tree in both modes. `ui/src/components/WaitTimer.tsx` is
   the top bar's countdown for `wait` mode, with a clock symbol that hides and
   re-shows it; it ticks client-side off the seconds-remaining reading each
-  response carries, because the front end neither polls nor streams. `ui/README.md` documents the two-process
+  response carries, because the front end neither polls nor streams. The top
+  bar's actor picker (`ui/src/components/ActorMenu.tsx`) lists `Main` plus
+  every actor in the session's `histories`; picking an actor swaps the
+  transcript for `ui/src/components/ActorHistoryView.tsx`, which draws that
+  actor's full unmerged history in the transcript's shapes (incoming turns as
+  bubbles, replies as prose, system prompts collapsed). The choice lives in
+  `App.tsx` state and falls back to `Main` when the open session has no actor of
+  that name. `App.tsx` arms a timer from `input_timeout` whenever a session is
+  waiting on a timed request and no call is in flight, and posts to the timeout
+  route when it runs out, which fetches what the backend's own timeout turn
+  said (or runs it). It also refetches the session when the tab becomes
+  visible or regains focus, for a background tab that slept through its timer. The inspector opens with `ui/src/components/GoalsPanel.tsx` when
+  the session carries `goals`: the goal tree nested, a status badge per goal, the
+  focus outlined, turn budgets, notes and recent goal events. `ui/README.md` documents the two-process
   development setup and the endpoints the app calls. `npm run build` writes
   `ui/dist`, which the backend serves at `/` when it exists, so one process can
   serve both. Node dependencies are not part of the Python install.
@@ -177,8 +195,8 @@ helpers and SGLang integration.
 - `fictive/__init__.py`
   Re-exports the main public entry points, including actors, the interpreter,
   the RAG backends and their passage/result types, provider-neutral agent
-  contracts, scenario loading helpers, and runtime
-  helpers from `run.py`. It also defines the explicit public export list used
+  contracts, scenario loading helpers, the scene-goals module (`goals`, plus
+  `GOALS_STORE_KEY`), and runtime helpers from `run.py`. It also defines the explicit public export list used
   by the repo-root compatibility shim.
 
 - `fictive/agent_api.py`
@@ -241,6 +259,11 @@ helpers and SGLang integration.
   - `Store.has(var_name)` reports whether a variable was ever assigned. `get`
     cannot answer that: an unassigned variable and one deliberately assigned
     `None` both read back as `None`.
+
+  `INSTRUCTIONS_RE` matches `(INSTRUCTIONS: ...)` spans, which `History.to_scene`
+  and the web transcript hide. It is non-greedy, so the first `)` ends a span;
+  `format_instructions(text)` wraps text as one of these turns with its own
+  parentheses turned into brackets, so the whole turn stays hidden.
 
 - `fictive/interpreter.py`
   Implements the instruction executor. It manages actor dispatch, the call
@@ -436,7 +459,8 @@ way `drive_flow`'s docstring describes for a host that must not block.
   directory. Required: `MAIN_ACTOR`, `flow(runtime)`, and either `ACTOR_TYPES`
   (name -> type, `None` for a plain `Actor`) or `ACTOR_NAMES`. Optional: `NAME`,
   `register_commands(runtime)`, `resume_flow(runtime)`. `build_actors` builds
-  each actor with `actor_from_config` and no `instructions`, which is a
+  each actor with `actor_from_config` (from one shared pipeline, or a
+  name -> pipeline dict) and no `instructions`, which is a
   library-runtime actor's correct starting state, so `schema.json` and
   `parse_scenario_config` are not involved at all.
 
@@ -493,6 +517,26 @@ way `drive_flow`'s docstring describes for a host that must not block.
   `Interpreter.exec`'s `traceback.print_exc()` belongs in the terminal.
 
 - `web/chat.py`
+  `to_json` includes `input_timeout`: seconds until the pending request's
+  timeout, or `null` for an untimed request. The backend times such a request
+  out itself: `_pump` arms a `threading.Timer` (`_schedule_timeout`) whenever
+  it parks on a timed request, because a browser cannot be relied on -- a
+  background tab may throttle or freeze its timers for the whole wait. The
+  timer and the browser's post both call `send_timeout()`, which is idempotent:
+  it waits for a turn in progress (most likely the other caller's), runs the
+  timeout only if the pending request is still the one it was set for and is
+  within `TIMEOUT_TOLERANCE` of its deadline, and otherwise leaves the session
+  alone. It delivers `INPUT_TIMEOUT` through the same `_run_turn` a message
+  uses; with no reader message delivered, `_commit_checkpoint` finds no
+  message to key a checkpoint on, so a timeout turn is not a branch point.
+  Output capture is per-thread, so a turn run on the timer's thread is recorded
+  like any other. `discard` cancels a pending timer.
+
+  `to_json` includes `goals`: `goals.snapshot` of the store -- the nested goal
+  tree with the focus marked and recent events -- or `null` when the flow sets
+  no goals. `store_json` leaves the `GOALS_STORE_KEY` row out, since it would
+  only be a truncated slice of JSON.
+
   `WebRuntime` is a `Runtime` that records every command into a
   `TranscriptRecorder`. The hook is **`cmd_exec`, not `cmd`**: `cmd` is only
   trace bookkeeping in front of `cmd_exec`, and a scenario may call `cmd_exec`
@@ -526,6 +570,17 @@ way `drive_flow`'s docstring describes for a host that must not block.
   double up; conversely, output that merely repeats the visible generation --
   what a flow prints for the benefit of a terminal reader -- is dropped rather
   than shown twice.
+
+  `show_reply` is overridden to mark what the flow chose to show, which is all
+  the UI's live mode draws. When the last visible generation became a
+  `MessageNode` (tracked as `_visible_message`, cleared by any visible generate
+  that did not, and by `clear_visible`), that node's `shown` flag is set; a
+  reply generated anywhere else gets its own `MessageNode(command="show-reply",
+  shown=True)` through `TranscriptRecorder.append_turn`, which appends at the
+  top level whatever frames are open, since a flow bar draws no messages. The
+  printed copy is attributed to the call, so it never becomes a stray `stdout`
+  step. `rebuild_from_history` marks a resumed session's assistant messages
+  `shown`, since the file does not record which were.
 
   `RuntimeChatSession` holds the parked generator. `start()` runs `next(flow)`,
   `send_input` runs `flow.send(text)`, and `_pump` is the one place a flow is
@@ -608,7 +663,9 @@ way `drive_flow`'s docstring describes for a host that must not block.
   is still waiting, and deriving one from the other would park a session behind
   a disabled composer. `step_pointers` is the per-actor count of commands
   issued, because a library-runtime actor has no instruction list and so no step
-  pointer to report.
+  pointer to report. `histories` (`histories_json`) is every actor's history,
+  main actor first, read unmerged: the transcript tree logs commands, while this
+  is what each actor actually holds, including turns a flow wrote by hand.
 
   Resuming: `WebRuntime.load_session` restores the session, then makes it a
   state a fresh flow can start on -- callstack back to just the main actor, and
@@ -637,6 +694,10 @@ way `drive_flow`'s docstring describes for a host that must not block.
   message and run on from it, discarding the turns after),
   `POST /api/sessions/{id}/fork` (`{message_seq, text?}`: branch a new session at
   one reader message, leaving the source untouched),
+  `POST /api/sessions/{id}/timeout` (run the timeout turn of a timed `ask` whose
+  time is up, if the backend has not already; otherwise a no-op that returns
+  the session as it is, so early, late and repeated calls are all safe; `409`
+  only when a running turn outlasts `TIMEOUT_LOCK_WAIT`),
   `POST /api/sessions/{id}/save`, and `DELETE /api/sessions/{id}` (forget a
   session: the live run, its session file, or both -- one route for both because
   the rail shows one row per id, and a file is named for the session that wrote
@@ -662,6 +723,13 @@ way `drive_flow`'s docstring describes for a host that must not block.
   `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`) from the environment or a `.env`
   in the working directory, which is why no key need appear on the command
   line.
+
+  `--model-fast` is optional. When given, `create_app` builds a second pipeline
+  of the same type and kwargs and passes sessions a name -> pipeline dict:
+  every actor with `router` in its name gets the fast pipeline, the rest get
+  `--model`. `RuntimeScenarioSpec.build_actors` accepts either one pipeline or
+  such a dict (which must cover every actor), and the session enables streaming
+  only when every pipeline has `generate_stream`.
 
 `fictive/websearch/` holds the `web-search-and-generate` backends, imported
 lazily for the same reason.
@@ -707,6 +775,13 @@ lazily for the same reason.
   than caching it, so there is one source of truth and `WebRuntime` and
   `BedrockRuntime` inherit the behaviour without an override of their own.
 
+  `show_reply()` prints the text in `last_visible` (the turn the last
+  `generate(visible=True)` produced) and returns it, or returns `None` when
+  there is none. It is not an interpreter command: `show_latest` issues
+  `print-latest`, which on a `Generator` prints the whole scene. A host that
+  shows only chosen replies keys on it; `WebRuntime` overrides it for the UI's
+  live mode.
+
   `Runtime` also carries the pieces a non-terminal host needs: `cmd_exec`
   accepts `_` for `-` in command names, `RESUMED_STORE_KEY` names the store
   variable a host sets before restarting a flow on a restored session (a
@@ -719,7 +794,60 @@ lazily for the same reason.
   through `generator.send(...)`, and `call_actor` is `run-actor` plus the
   callee's steps plus the callstack unwind as one Python call.
 
+  `ask(..., timeout=seconds)` makes a timed request: `InputRequest.timeout`
+  carries the seconds left, and a host that lets them run out sends the
+  `INPUT_TIMEOUT` sentinel instead of an answer, for which `ask` returns `None`
+  and records nothing. The deadline is fixed when `ask` starts, so a slash
+  command answered in between re-yields the request with the time that is left
+  rather than restarting the clock. A command handler that raises
+  `CommandTimeout` ends a timed `ask` at once, returning `None` just as a
+  timeout would; at an untimed `ask` it is ignored and the prompt repeats. `drive_flow`'s default input function
+  honours the timeout with `select` on a POSIX terminal and blocks as before
+  elsewhere; hosts that ignore `timeout` simply never time out.
+
   Every example under `examples/` is driven this way.
+
+- `fictive/goals.py`
+  Scene goals: a tree of goals a flow pursues, worked depth-first. The deepest
+  open goal is the *focus*; a new sub-goal of the focus pre-empts it at once,
+  and the parent resumes when the sub-goal closes. Parents close on their own
+  only when marked `complete_with_children`; closing any goal abandons its open
+  descendants.
+
+  The whole tree is one JSON dict in the store under `GOALS_STORE_KEY`
+  (`"_fictive_goals"`), so session files and the web backend's rewrite/fork
+  checkpoints carry and roll back goals with no code of their own. Those
+  checkpoints and `restore_interpreter` copy the store one level deep, so the
+  live store can share the dict with a checkpoint: the module therefore deep
+  copies on every read and stores a fresh copy on every write (a JSON round
+  trip, which also rejects non-JSON `data` when it is written rather than at
+  save time). `GoalTree` holds the pure tree logic (add, close, tick, focus,
+  limits, events, rendering); the module functions load, edit and save it
+  through a `Runtime`.
+
+  Flow API: `start_scene` (idempotent unless `reset=True`, because a flow
+  restarts from the top on resume and rewrite -- guard other setup with
+  `RESUMED_STORE_KEY`), `add`, `complete`/`fail`/`abandon`, `note`, `update`,
+  `tick` (one per player turn; counts a turn against every goal on the focus
+  path and fails the shallowest goal whose `turn_budget` is used up), readers
+  `active`/`path`/`get`/`tree`/`summary`, and `inject`, which appends
+  `instruction_text` as a hidden `(INSTRUCTIONS: ...)` turn to the working actor
+  (through `rt.append`, not `generate(prompt=)`, which would resolve the text
+  as a file path or `var:` lookup). `snapshot(store)` builds the nested view the
+  web backend serves.
+
+  LLM helpers `judge(rt, actor)` and `plan(rt, actor, goal_id=|event=)` are
+  generator flows (`yield from`) that run a helper actor through `call_actor`
+  for a strict JSON reply, dropping a bad reply with `history.remove()` and
+  regenerating up to `max_retries` times. The judge rules only on the focus
+  (`continue|done|failed`); the planner adds sub-goals, capped in text length,
+  de-duplicated against open siblings and held to the tree's `limits`
+  (`max_depth`, `max_open_children`, `max_goals`, `planner_turn_budget`), with
+  anything dropped logged as an event instead of raised. A reply that never
+  parses logs a `judge_error`/`plan_error` event by default, or raises
+  `GoalOutputError` with `on_error="raise"`. Default prompts are the module
+  constants `JUDGE_SYSTEM_PROMPT` and `PLANNER_SYSTEM_PROMPT`; `system=`
+  overrides them.
 
 ### Package: `fictive/parser/`
 
