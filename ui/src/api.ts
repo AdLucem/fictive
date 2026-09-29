@@ -36,6 +36,9 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  /** The reader let a timed request run out; the flow runs on without an answer. */
+  timeoutInput: (id: string) => request<Session>(`/api/sessions/${id}/timeout`, { method: "POST" }),
+
   /** Replace one reader message; every turn after it is discarded. */
   rewriteMessage: (id: string, messageSeq: number, text: string) =>
     request<Session>(`/api/sessions/${id}/rewrite`, {
@@ -49,6 +52,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message_seq: messageSeq, text }),
     }),
+
+  /** Forget a session: the live run, its session file on disk, or both. */
+  deleteSession: (id: string) =>
+    request<{ id: string; deleted_live: boolean; deleted_file: string | null }>(
+      `/api/sessions/${id}`,
+      { method: "DELETE" },
+    ),
 
   saveSession: (id: string) =>
     request<{ id: string; saved_path: string }>(`/api/sessions/${id}/save`, { method: "POST" }),

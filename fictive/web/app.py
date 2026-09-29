@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 from llm_utils import PipelineConfig, pipeline_from_config
 
+from ..session import validate_session_id
 from .chat import (
     BranchPointUnknown,
     RuntimeChatSession,
@@ -79,6 +80,7 @@ def create_app(
     pipeline_type: str = "mock",
     model: str = "mock",
     ui_dist: str | pathlib.Path = DEFAULT_UI_DIST,
+    model_fast: Optional[str] = None,
     **pipeline_kwargs,
 ) -> FastAPI:
     spec = RuntimeScenarioSpec(scenario)
@@ -86,6 +88,15 @@ def create_app(
     pipeline = pipeline_from_config(
         PipelineConfig(model=model, pipeline_type=pipeline_type, **pipeline_kwargs)
     )
+    actor_pipelines = pipeline
+    if model_fast:
+        fast_pipeline = pipeline_from_config(
+            PipelineConfig(model=model_fast, pipeline_type=pipeline_type, **pipeline_kwargs)
+        )
+        actor_pipelines = {
+            name: fast_pipeline if "router" in name else pipeline
+            for name in spec.actor_names
+        }
     # Scene commands say what they did by printing. One tee lets a turn collect
     # its own output without any thread stealing another's stdout.
     tee = install_tee()
@@ -171,7 +182,7 @@ def create_app(
     @app.post("/api/sessions")
     def create_session(body: NewSession | None = None) -> dict:
         body = body or NewSession()
-        session = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
+        session = RuntimeChatSession(spec, actor_pipelines, storage_dir, tee, title=body.title)
         sessions[session.id] = session
         try:
             if body.load_session_id:
@@ -203,6 +214,16 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return session.to_json()
 
+    @app.post("/api/sessions/{session_id}/timeout")
+    def post_timeout(session_id: str) -> dict:
+        """A timed request ran out: run its timeout turn if the backend has not yet, and return the session."""
+        session = get_session(session_id)
+        try:
+            session.send_timeout()
+        except SessionBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return session.to_json()
+
     @app.post("/api/sessions/{session_id}/rewrite")
     def rewrite_message(session_id: str, body: Rewrite) -> dict:
         session = get_session(session_id)
@@ -226,7 +247,7 @@ def create_app(
         except BranchPointUnknown as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        fork = RuntimeChatSession(spec, pipeline, storage_dir, tee, title=body.title)
+        fork = RuntimeChatSession(spec, actor_pipelines, storage_dir, tee, title=body.title)
         sessions[fork.id] = fork
         try:
             fork.fork_from(source, body.message_seq, body.text)
@@ -237,6 +258,52 @@ def create_app(
             sessions.pop(fork.id, None)
             raise HTTPException(status_code=400, detail=f"Could not fork: {exc}") from exc
         return fork.to_json()
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(session_id: str) -> dict:
+        """Forget a session: the live run, its session file, or both.
+
+        One route for both, because the rail shows one row per id -- a live run
+        that has been saved is not listed a second time under the files -- so
+        "delete this" can only mean everything behind that row. A session file
+        is named for the session that wrote it, so there is no id under which
+        one session's run could be dropped and another's file deleted.
+
+        `session_id` is validated before it is joined to a path: it arrives from
+        the URL, and `conversations_dir() / f"{session_id}.json"` would
+        otherwise follow `..` straight out of the storage directory.
+        """
+        try:
+            validate_session_id(session_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        session = sessions.get(session_id)
+        if session is not None:
+            try:
+                session.discard()
+            except SessionBusy as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            sessions.pop(session_id, None)
+
+        deleted_file = None
+        path = conversations_dir() / f"{session_id}.json"
+        if path.is_file():
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"Could not delete {path}: {exc}"
+                ) from exc
+            deleted_file = str(path)
+
+        if session is None and deleted_file is None:
+            raise HTTPException(status_code=404, detail=f"No session {session_id}")
+        return {
+            "id": session_id,
+            "deleted_live": session is not None,
+            "deleted_file": deleted_file,
+        }
 
     @app.post("/api/sessions/{session_id}/save")
     def save_session(session_id: str) -> dict:
@@ -275,6 +342,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["mock", "sglang", "transformers", "vllm", "minimax", "anthropic", "openai"],
     )
     parser.add_argument("--model", default="mock")
+    parser.add_argument(
+        "--model-fast",
+        default=None,
+        help="Model for every actor with 'router' in its name; --model serves the rest.",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ui-dist", default=str(DEFAULT_UI_DIST))
@@ -311,6 +383,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         storage_dir=args.storage_dir,
         pipeline_type=args.pipeline_type,
         model=args.model,
+        model_fast=args.model_fast,
         ui_dist=args.ui_dist,
         token=args.token,
         base_url=args.base_url,

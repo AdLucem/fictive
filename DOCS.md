@@ -86,8 +86,9 @@ We code a flow as a python function `def my_flow(runtime):`. Every method on `ru
 
 - `runtime.refresh()` clears the actor's history except its system prompt; flows call it first so each run starts clean.
 - `runtime.system(PATH)` sets the system prompt. `runtime.input_from_file(PATH)` appends a prompt file as a user turn, `runtime.input_from_store(key)` appends a store value, and `runtime.store_set(key, value)` writes one.
-- `runtime.generate(prompt=None, visible=False)` runs the model, `runtime.show_latest()` prints the result, and `runtime.raw_latest_text()` returns it as a string.
+- `runtime.generate(prompt=None, visible=False)` runs the model, `runtime.show_latest()` prints the result, and `runtime.raw_latest_text()` returns it as a string. `runtime.show_reply()` prints just the reply the last `generate(visible=True)` produced (`show_latest` on a `generator` actor prints its whole scene), and is what the web UI's live mode shows.
 - `runtime.actor("generator").get_scene()` returns the scene so far, which only the generator holds.
+- `runtime.wait(seconds=N)` enters wait mode for `N` seconds, and `runtime.waiting` / `runtime.wait_remaining` read it back. See [Wait mode](#wait-mode).
 - Prompt paths are module-level `Path` constants built from `SCENARIO_ROOT`.
 
 ### Example Flow
@@ -136,6 +137,78 @@ def writer_flow(runtime):
         runtime.store_set("round", runtime.store_get("round") + 1)
 ```
 
+## Wait mode
+
+`runtime.wait(seconds=N)` marks a stretch of time as passing. It is **non-blocking**: the flow runs alongside the wait.
+
+```python
+runtime.wait(seconds=90)
+runtime.generate(visible=True)   # runs at once; the wait did not hold it up
+
+if runtime.waiting:
+    runtime.append(f"{int(runtime.wait_remaining)} seconds of the hour remain.")
+```
+
+A flow reads the state through three properties:
+
+- `runtime.waiting` -- `True` while the wait is still running down.
+- `runtime.wait_remaining` -- seconds left, `0.0` when nothing is waiting.
+- `runtime.wait_seconds` -- the duration the last `wait` asked for.
+
+The wait mode currently expires without explicitly informing the main process. The main process needs to poll `runtime.waiting` and `runtime.wait_remaining` to find out when a wait is over. This is to avoid having a separate running thread for watching the wait. 
+
+Waits do not stack; a second `wait` will replace the first, if called while the first wait is active. `runtime.wait(seconds=0)` cancels a wait.
+
+Waits are not saved along with sessions. In the web UI an active wait shows as a countdown in the top bar; see
+[Web UI](#web-ui).
+
+### Acting when time runs out
+
+To have the flow act the moment a stretch of time is up, give the `ask` a timeout:
+
+```python
+reply = yield from ask(runtime, "you> ", timeout=runtime.wait_remaining or None)
+if reply is None:            # nobody answered in time
+    runtime.append("(INSTRUCTIONS: Announce that time is up.)")
+    runtime.generate(visible=True)
+    runtime.show_reply()
+```
+
+`ask` returns `None` when the time runs out. In the web UI the backend resumes the flow itself when the time is up, so it happens on time even if the browser tab is in the background.  In a terminal, `drive_flow` does the same on Linux and macOS.
+
+## Scene goals
+
+`fictive.goals` gives a scene a tree of goals. The scene starts with one goal; sub-goals go beneath it. The goal tree is explored depth-first: the deepest open
+leaf node is the **focus**. Adding a sub-goal to the focus (i.e: adding a new leaf node) makes the new goal the
+focus at once, and the goal it interrupted resumes when the new goal closes.
+
+```python
+from fictive import RESUMED_STORE_KEY, ask, call_actor, goals
+
+def play(rt):
+    if not rt.store_get(RESUMED_STORE_KEY):
+        root = goals.start_scene(rt, "Interrogate the suspect", turn_budget=40)
+        yield from goals.plan(rt, "planner", goal_id=root)   # LLM proposes ordered sub-goals
+    while goals.active(rt):
+        msg = yield from ask(rt, "you> ", store="last_message")
+        goals.tick(rt)                                        # one turn against the focus path
+        yield from goals.judge(rt, "judge")                   # LLM: is the focus done?
+        if "shout" in msg:
+            goals.add(rt, "Calm the suspect down", turn_budget=3)   # pre-empts the current focus
+        goals.inject(rt)                                      # hidden (INSTRUCTIONS: ...) turn
+        rt.generate(visible=True)
+        rt.show_reply()
+```
+
+- **By hand:** `add`, `complete`, `fail`, `abandon`, `note`, `update`. Each takes a goal id, or works on the focus when none is given. Closing a goal abandons its open sub-goals. A goal added with `complete_with_children=True` closes itself once all its sub-goals are closed and at least one of them is done.
+- **By an LLM:** `judge` and `plan` run a helper actor you name and expect a JSON reply, retrying a few times when the reply doesn't parse. Use them with `yield from`. Their default prompts can be replaced with `system=`.
+- **Budgets and limits:** a goal's `turn_budget` counts `tick` calls. When it runs out, the goal fails. Depth, open sub-goals and total goals are capped (`limits=` on `start_scene`), so a planner cannot grow the tree forever.
+- **Steering the generator:** `inject` appends the path from the scene goal to the focus as an `(INSTRUCTIONS: ...)` turn, which the scene text and the web transcript hide. Call it while the scene actor holds control, just before a
+  visible generation.
+- **Persistence:** the tree lives in the store, so saving, loading, rewriting and forking all carry it. `start_scene` keeps an existing tree, because a resumed flow starts from the top. Guard any other setup with `RESUMED_STORE_KEY`.
+
+The web UI shows the tree in the inspector.
+
 ## Special Commands Framework
 
 The `fictive` library includes a framework for special commands that can be executed during gameplay by typing `/command` (e.g., `/save`, `/load`, `/help`).
@@ -144,7 +217,7 @@ The `fictive` library includes a framework for special commands that can be exec
 
 1. **Command Registry**: `Runtime.register_command(name, handler)` registers a command handler.
 2. **Command Handlers**: Functions taking `(runtime: Runtime, args: str)` that execute the command.
-3. **Flow Control**: Commands can raise `CommandRestart` to restart the flow or `CommandExit` to exit.
+3. **Flow Control**: Commands can raise `CommandRestart` to restart the flow, `CommandExit` to exit, or `CommandTimeout` to end a timed `ask` now, as if its timer had run out.
 4. **Integration**: Commands are detected in the `ask()` function transparently to the flow.
 
 ### Example: Save/Load Commands
@@ -228,14 +301,41 @@ Note that the called actors in the UI nest only five levels deep. You can nest `
 The backend (`fictive/web/`) runs a flow. A flow suspends when it needs a human answer. `next(flow)` runs the flow up to the first `InputRequest`. In the web interface, instead of waiting on a `yield from ask(...)` statement, the flow waits to receive a `POST` request from the UI.
 
 
+When a flow is in [wait mode](#wait-mode), the top bar shows a countdown
+alongside a clock symbol that hides and re-shows it. The countdown ticks in the
+browser: a turn is one synchronous request, so the backend sends the seconds
+remaining with each response and the page counts down from that reading until
+the next one arrives.
+
+**Settings: dev and live mode.** The Settings section at the foot of the
+session rail switches how the transcript is drawn. **Dev** (the default) shows
+everything above: every visible generation, every step and every called
+actor's bar. **Live** shows only the reader's messages and the replies the flow
+shows with `runtime.show_reply()` -- what a player, not the author, should see.
+A visible generation the flow never shows does not appear in live mode. The
+setting is a view only (remembered per browser), so switching it redraws the
+current session and everything else -- rewrite, fork, save, resume, the wait
+countdown -- works the same in both. A resumed session's restored replies count
+as shown. Live mode needs a library-runtime flow; it does not apply to JSON
+scenarios.
+
+**Actor histories.** The dropdown at the right of the top bar lists **Main**
+and every actor in the scenario. Picking an actor replaces the chat window with
+that actor's full history, message by message: what it was sent as bubbles, its
+replies as prose, and its system prompt as a collapsed block. It shows exactly
+what the actor holds, so it can include turns the transcript never logged. The
+history view is read-only and updates after each turn. Pick **Main** to go back
+to the conversation.
+
 Two things that are required within a `flow` function for the Web UI to work:
 - `generate(visible=True)` marks the one generation the reader should see
 - `ask(..., content=False)` marks a prompt as a human input cue -- a terminal prints it, the web UI shows its own input box instead.
 
 ### Writing a scenario for the web UI
 
-`--scenario` takes a Python module: a `.py` file, or a directory containing `fictive_scenario.py`. The module answers a small contract, and the backend builds the actors itself so one pipeline chosen on the command line serves the
-whole scenario:
+`--scenario` takes a Python module: a `.py` file, or a directory containing `fictive_scenario.py`. The following names and functions are required for the scenario to play correctly on the web UI:
+
+TODO: make it so that we can define actors in the main scenario window, so that we can use different pipelines for different actors
 
 ```python
 NAME = "evil_AI"                      # optional; defaults to the directory name
@@ -246,8 +346,20 @@ def resume_flow(runtime): ...         # optional; used instead of `flow` on a re
 def register_commands(runtime): ...   # optional; see Special Commands, below
 ```
 
-`examples/evil_AI` is laid out this way: `config.py` owns the paths and the argument parser, `flows.py` the flows, `fictive_scenario.py` the contract above, and `main.py` remains the terminal entry point driving the same `flow` through `drive_flow`. The module's own directory goes on `sys.path` before it is imported, so a scenario package can keep importing its siblings flat (`from config import ...`). One consequence: those flat names are global, so one
-process serves one scenario.
+In the example scenario `examples/evil_AI/fictive_scenario.py`:
+
+```python
+from config import ACTOR_TYPES, SCENARIO_DIR
+from flows import flow
+
+NAME = "evil_AI"
+MAIN_ACTOR = "generator"
+
+__all__ = ["ACTOR_TYPES", "MAIN_ACTOR", "NAME", "SCENARIO_DIR", "flow"]
+```
+
+- `config.py` contains `ACTOR_TYPES`
+- `flows.py` contains all the sub-actor flows, as well as the main `flow`
 
 **Resuming.** A session file holds actor histories, the store and the callstack, but not a flow's position -- that lives in a Python generator. So resuming restores the state and starts the flow again against it. The backend sets the
 store variable `RESUMED_STORE_KEY` (`"_fictive_resumed"`) first, so a flow can
@@ -262,6 +374,11 @@ A scenario that needs more than a branch can define `resume_flow(runtime)`
 instead. Either way the transcript is rebuilt from the main actor's history, and
 says plainly that frames from before the save are not in the file.
 
+### The Main Flow
+
+```python
+def flow(runtime: Runtime):
+    
 ### Rewriting a message, and forking a conversation
 
 Hovering a reader message in the transcript reveals **Rewrite** and **Fork**.
@@ -291,6 +408,30 @@ which is why a session resumed from a file has real messages with nothing to
 rewind to until it takes a turn of its own, and why only the 50 most recent are
 kept. And a rewrite works on a session whose flow has finished or failed, which
 makes it the way out of a turn that broke: the flow is replaced either way.
+
+### Deleting a session
+
+Each row in the session rail carries a trash control, revealed on hover or
+keyboard focus. Deleting asks once, in the row itself, and then removes
+everything behind that row: the live run if there is one, and the session file
+on disk if the session was saved. One control for both, because the rail shows
+one row per session -- a live run that has been saved is not also listed under
+the files -- so there is nothing a delete could ambiguously mean.
+
+A session that is mid-turn is not deleted; the request comes back with the same
+`409` a concurrent message would. Deleting the session you are looking at moves
+the view to the next live one, or starts a fresh session if that was the last.
+
+### Reading what a command was given
+
+Steps in the transcript name what their command was handed: a `system` or an
+`input-from` is usually written as a path, and the step showed the file name.
+Both now carry the resolved text as well, shown in full under the step and
+collapsible from the line above it, which also reports its length. The text is
+read off the actor once the command has run rather than by resolving the path a
+second time, so what a step shows is what the actor actually received --
+enclosing prompts applied, store lookups resolved, and a literal string handled
+no differently from a file.
 
 **Two guard rails.** A turn that issues 400 commands without asking for input
 is stopped and reported as an error, because a generator that never yields would
@@ -323,6 +464,10 @@ deepseek/deepseek-v3.2` for an OpenAI-compatible endpoint such as OpenRouter,
 or `--pipeline-type anthropic --model claude-sonnet-5`. Each pipeline resolves
 its own provider's key from the environment or a `.env` in the working
 directory, so no key need appear on the command line.
+
+Add `--model-fast <model>` to run every actor with `router` in its name on a
+second, faster model of the same pipeline type; every other actor uses
+`--model`.
 
 To serve both from one process, run `npm run build` in `ui/`; the backend
 mounts the built `ui/dist` at `/`.

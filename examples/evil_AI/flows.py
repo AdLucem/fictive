@@ -14,7 +14,7 @@ terminal and under the web backend, which resumes it once per HTTP request.
 import re
 from functools import partial
 
-from config import SCENARIO_DIR, SCORE_KEYS, SCORERS, next_instructions, show_reply
+from config import SCENARIO_DIR, SCORE_KEYS, SCORERS, next_instructions
 
 from fictive import RESUMED_STORE_KEY, Runtime, ask, call_actor
 
@@ -139,10 +139,8 @@ def flow(runtime: Runtime):
 
     if not runtime.store_get(RESUMED_STORE_KEY):
         runtime.generate(SCENARIO_DIR / "generator_prompt.txt", visible=True)
-        show_reply(runtime)
+        runtime.show_reply()
 
-    # The JSON flow closes with `loop` back to the user's turn; here that is
-    # just a Python loop.
     while True:
         # `content=False`: this is the turn-taking cue, not something the scene
         # is saying. A terminal prints it; a chat UI has its own input box and
@@ -171,7 +169,7 @@ def flow(runtime: Runtime):
             enclosing_prompt="(INSTRUCTIONS: {INPUT_FROM})",
         )
         runtime.generate(visible=True)
-        show_reply(runtime)
+        runtime.show_reply()
 
 
 def run_single_actor_flow(runtime: Runtime, actor_name: str):

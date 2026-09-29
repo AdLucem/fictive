@@ -25,6 +25,7 @@ class Cmd(StrEnum):
     WRITE = "write"
     PRINT = "print"
     PRINT_LATEST = "print-latest"
+    WAIT = "wait"
     COND = "cond"
     EXIT = "exit"
     SAVE_CONVERSATION = "save-conversation"
@@ -71,6 +72,7 @@ class Cmd(StrEnum):
             Cmd.WRITE: WRITE,
             Cmd.PRINT: PRINT,
             Cmd.PRINT_LATEST: PRINT_LATEST,
+            Cmd.WAIT: WAIT,
             Cmd.COND: COND,
             Cmd.EXIT: EXIT,
             Cmd.SAVE_CONVERSATION: SAVE_CONVERSATION,
@@ -218,6 +220,23 @@ class PRINT_LATEST(CommandObj):
     name = "print-latest"
     actor_name: Optional[str] = None
     n: int = 0
+
+
+@dataclass
+class WAIT(CommandObj):
+    """Enter wait mode for `seconds`. Non-blocking: nothing sleeps."""
+
+    name = "wait"
+    seconds: float
+
+    def __post_init__(self):
+        # `True` is an `int` and would otherwise pass the range check, the same
+        # trap `WEB_SEARCH_AND_GENERATE.__post_init__` guards against.
+        if isinstance(self.seconds, bool) or not isinstance(self.seconds, (int, float)):
+            raise TypeError(f"wait seconds must be a number, got {self.seconds!r}.")
+        if self.seconds < 0:
+            raise ValueError(f"wait seconds must not be negative, got {self.seconds!r}.")
+        self.seconds = float(self.seconds)
 
 
 @dataclass

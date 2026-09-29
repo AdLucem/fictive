@@ -138,3 +138,27 @@ export function Branch({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function Trash({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <g stroke="currentColor" {...stroke} strokeWidth={1.4}>
+        <path d="M2.8 4.2h10.4" />
+        <path d="M6.2 4.2V2.8h3.6v1.4" />
+        <path d="M4.1 4.2l.7 8.3a.9.9 0 0 0 .9.8h4.6a.9.9 0 0 0 .9-.8l.7-8.3" />
+        <path d="M6.7 6.6v4.4M9.3 6.6v4.4" />
+      </g>
+    </svg>
+  );
+}
+
+export function Clock({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <g stroke="currentColor" {...stroke} strokeWidth={1.4}>
+        <circle cx="8" cy="8" r="5.8" />
+        <path d="M8 4.6V8l2.4 1.6" />
+      </g>
+    </svg>
+  );
+}

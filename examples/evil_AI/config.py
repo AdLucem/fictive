@@ -169,24 +169,6 @@ def build_actors(scenario_dir: Path, storage_dir: str, pipeline):
     return actors
 
 
-def show_reply(runtime):
-    """Print the reply the generator just produced, for a terminal reader.
-
-    `show_latest` would print the generator's whole scene instead: the
-    `generator` actor type overrides `get_latest_output` to return the full
-    transcript. `last_visible` holds only the turn just generated.
-
-    A chat UI needs none of this -- it reads the same generation off the
-    transcript -- so the web backend drops a printed copy of a generation it has
-    already recorded as a message.
-    """
-
-    if runtime.last_visible is None:
-        return
-    _, reply = runtime.last_visible
-    print(reply)
-
-
 def next_instructions(fear: float, trust: float) -> str:
     """The author intent for the next generator turn, given the two scores.
 

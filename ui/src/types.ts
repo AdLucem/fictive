@@ -2,6 +2,13 @@
 
 export type NodeKind = "message" | "flow" | "step";
 
+/**
+ * How the transcript is drawn. `dev` shows every command and called actor;
+ * `live` shows only the reader's turns and the replies the flow chose to show
+ * with `show_reply`. A view setting only: the backend runs the same either way.
+ */
+export type ViewMode = "dev" | "live";
+
 export interface MessageNode {
   kind: "message";
   seq: number;
@@ -11,6 +18,8 @@ export interface MessageNode {
   command: string;
   step: number | null;
   depth: 0;
+  /** True once the flow showed this reply with `show_reply`; live mode draws only these. */
+  shown: boolean;
 }
 
 export interface StepNode {
@@ -20,6 +29,12 @@ export interface StepNode {
   command: string;
   depth: number;
   detail: string;
+  /**
+   * The whole text the command was handed, where naming it is not enough: a
+   * `system`'s resolved prompt, or what an `input-from` put into the actor.
+   * `detail` stays the one-line label the collapsed row shows.
+   */
+  detail_text: string | null;
   text: string | null;
   step: number | null;
   error: string | null;
@@ -51,6 +66,19 @@ export interface StoreRow {
   waiting_on: string | null;
 }
 
+/** One message exactly as an actor's history holds it, unmerged. */
+export interface HistoryMessage {
+  role: string;
+  content: string;
+}
+
+/** One actor's full history: what the actor holds, not what the flow logged. */
+export interface ActorHistory {
+  name: string;
+  type: string;
+  messages: HistoryMessage[];
+}
+
 export interface ScenarioActor {
   name: string;
   type: string;
@@ -67,6 +95,53 @@ export interface Scenario {
   conversations_dir?: string;
 }
 
+export interface WaitState {
+  /** True while the runtime's `wait` is still running down. */
+  active: boolean;
+  /** Seconds left at the moment the backend built this response. */
+  remaining: number;
+  /** Seconds the `wait` command asked for. */
+  total: number;
+}
+
+export type GoalStatus = "pending" | "active" | "done" | "failed" | "abandoned";
+
+export interface GoalNote {
+  turn: number;
+  text: string;
+}
+
+/** One goal in the scene's goal tree (`fictive/goals.py`), children nested. */
+export interface GoalNode {
+  id: string;
+  text: string;
+  criteria: string | null;
+  status: GoalStatus;
+  source: "flow" | "planner";
+  turns: number;
+  turn_budget: number | null;
+  complete_with_children: boolean;
+  notes: GoalNote[];
+  /** The deepest open goal: the one the scene is pursuing now. */
+  focus: boolean;
+  children: GoalNode[];
+}
+
+export interface GoalEvent {
+  turn: number;
+  goal: string | null;
+  kind: string;
+  text: string;
+}
+
+export interface GoalsState {
+  turn: number;
+  focus: string | null;
+  root: GoalNode;
+  /** Most recent events, oldest first. */
+  events: GoalEvent[];
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -77,6 +152,12 @@ export interface Session {
   callstack: string[];
   waiting_prompt: string | null;
   awaiting_input: boolean;
+  /**
+   * Seconds until the flow's pending request gives up waiting for the reader,
+   * or null when it waits indefinitely. The app posts to the timeout route
+   * when it reaches zero.
+   */
+  input_timeout: number | null;
   turn_count: number;
   exit_message: string | null;
   error: string | null;
@@ -92,8 +173,17 @@ export interface Session {
    */
   branch_points: number[];
   turns: TranscriptNode[];
+  /** Every actor's history, main actor first; what the actor picker shows. */
+  histories: ActorHistory[];
   store: StoreRow[];
+  /** The scene's goal tree, or null when the flow sets no goals. */
+  goals: GoalsState | null;
   step_pointers: Record<string, number>;
+  /**
+   * Wait mode. The backend sends seconds remaining rather than a deadline, so
+   * the browser counts down from that reading and no clock skew can shift it.
+   */
+  wait: WaitState;
 }
 
 export interface LiveSessionRow {

@@ -19,6 +19,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import threading
+import time
 import traceback
 import uuid
 from collections import Counter
@@ -27,18 +28,22 @@ from typing import Callable, Optional
 
 from ..actors import Actor
 from ..data_structures import INSTRUCTIONS_RE
+from ..goals import GOALS_STORE_KEY, snapshot as goals_snapshot
 from ..interpreter import Interpreter
 from ..library_runtime import (
     RESUMED_STORE_KEY,
     CommandExit,
     CommandRestart,
     DebugQuit,
+    INPUT_TIMEOUT,
     InputRequest,
     Runtime,
 )
 from ..session import restore_interpreter, snapshot_interpreter
 from .scenario import RuntimeScenarioSpec
 from .tree import (
+    DETAIL_TEXT_LIMIT,
+    DETAILED_COMMANDS,
     GENERATING_COMMANDS,
     QUIET_COMMANDS,
     MessageNode,
@@ -47,6 +52,7 @@ from .tree import (
     _as_text,
     _truncate,
     new_assistant_text,
+    new_history_text,
 )
 
 # Distinguishes "this was not a `system` command" from a system prompt of None.
@@ -131,6 +137,9 @@ class WebRuntime(Runtime):
         self._stdout_attributed = 0
         self._commands_this_turn = 0
         self._last_command_error: Optional[str] = None
+        # The `MessageNode` the last visible generation became, if it became
+        # one, so `show_reply` can mark that node rather than add a second.
+        self._visible_message: Optional[MessageNode] = None
 
     # ------------------------------------------------------------------
     # turn boundaries
@@ -281,18 +290,20 @@ class WebRuntime(Runtime):
             else None
         )
         is_main_turn = (actor_name == self.main_actor_name) and (depth == 0)
+        if visible:
+            # Replaced just below when this generation becomes a message.
+            self._visible_message = None
 
         if visible and (generated is not None) and is_main_turn:
-            recorder.append(
-                MessageNode(
-                    actor=actor_name,
-                    role="assistant",
-                    text=generated,
-                    seq=seq,
-                    command=command,
-                    step=count,
-                )
+            self._visible_message = MessageNode(
+                actor=actor_name,
+                role="assistant",
+                text=generated,
+                seq=seq,
+                command=command,
+                step=count,
             )
+            recorder.append(self._visible_message)
             return result
 
         if (
@@ -324,6 +335,7 @@ class WebRuntime(Runtime):
                 depth=depth,
                 seq=seq,
                 detail=self._detail(command, kwargs),
+                detail_text=self._detail_text(command, kwargs, actor, history_before),
                 text=generated if generated is not None else (printed or None),
                 step=count,
             )
@@ -419,6 +431,45 @@ class WebRuntime(Runtime):
             )
         return result
 
+    def show_reply(self) -> Optional[str]:
+        """Mark the reply the flow chose to show, which is what live mode draws.
+
+        The usual case is a visible generation by the main actor at depth 0,
+        which is already a `MessageNode`: it is flagged rather than duplicated.
+        A reply generated anywhere else (another actor, or inside a called
+        frame) was recorded as a step, so it gets a message of its own at the
+        top level, where the conversation is drawn. The printed copy is
+        attributed here, never left for `flush_stdout` to record as a stray step.
+        """
+        self.flush_stdout()
+        reply = super().show_reply()
+        self._stdout_attributed = self._stdout_length()
+        if reply is None:
+            return None
+
+        node = self._visible_message
+        if node is not None and node.text == reply:
+            with self.recorder.lock:
+                node.shown = True
+            return reply
+
+        recorder = self.recorder
+        actor_name = self.last_visible[0] if self.last_visible else self.working_actor_name
+        self._visible_message = MessageNode(
+            actor=actor_name,
+            role="assistant",
+            text=_truncate(reply),
+            seq=recorder.next_seq(),
+            command="show-reply",
+            shown=True,
+        )
+        recorder.append_turn(self._visible_message)
+        return reply
+
+    def clear_visible(self) -> None:
+        super().clear_visible()
+        self._visible_message = None
+
     def append(self, text: str):
         result = super().append(text)
         self.recorder.append(
@@ -467,6 +518,9 @@ class WebRuntime(Runtime):
         """
         self.interpreter.callstack = [self.main_actor_name]
         self.interpreter.waiting_store.clear()
+        # A countdown belongs to the generator that started it, and every path
+        # through here discards that generator.
+        self.interpreter.clear_wait()
         self.working_actor = self.interpreter.actor_fetch(self.main_actor_name)
         self.clear_visible()
         self.store_set(RESUMED_STORE_KEY, True)
@@ -562,9 +616,54 @@ class WebRuntime(Runtime):
                 )
             if command == "write":
                 return str(kwargs.get("path", ""))
+            if command == "wait":
+                return f"{kwargs.get('seconds', '?')}s"
         except Exception:
             return ""
         return ""
+
+    def _detail_text(
+        self,
+        command: str,
+        kwargs: dict,
+        actor: Actor,
+        history_before: int,
+    ) -> Optional[str]:
+        """The whole text the command was handed, for a collapsible block.
+
+        `_detail` names a prompt; this is the prompt. A `system` or an
+        `input-from` is nearly always written as a path, and a file name says
+        nothing about what the actor was actually given -- which for reading a
+        scenario back is the only thing that matters.
+
+        Read off the actor after the command ran, rather than by resolving the
+        path again here: `exec_SYSTEM` and `exec_INPUT_FROM` put the resolved
+        text where it belongs, and reading it back is both simpler than
+        reimplementing `parse_prompt_object` and honest about enclosing prompts
+        and store lookups, which have no file behind them at all.
+
+        Never raises, for the same reason `_detail` does not: a detail line must
+        not be able to break a run.
+        """
+        if command not in DETAILED_COMMANDS:
+            return None
+        try:
+            if command == "system":
+                # The parsed prompt, which `exec_SYSTEM` has just set.
+                return _truncate(_as_text(actor.system_prompt), DETAIL_TEXT_LIMIT) or None
+            # `input-from` appends its resolved input to history, unless a
+            # `store` took it instead (and `history` did not also ask for it).
+            appended = new_history_text(actor, history_before)
+            if appended:
+                return appended
+            store = kwargs.get("store")
+            if store:
+                value = self.read_store(str(store))
+                if value:
+                    return _truncate(value, DETAIL_TEXT_LIMIT)
+        except Exception:
+            return None
+        return None
 
     def _prompt_label(self, value) -> str:
         """Prompt paths show as a scenario-relative name, not an absolute path."""
@@ -596,6 +695,12 @@ class RuntimeChatSession:
     # being rewritable, which `branch_points` reports, rather than the session
     # growing without bound.
     MAX_CHECKPOINTS = 50
+    # How early a timeout may run: the browser counts down from a reading taken
+    # when the response was built, so its call can arrive a little ahead.
+    TIMEOUT_TOLERANCE = 1.0
+    # How long a timeout call waits for a turn already running (typically the
+    # backend's own timeout turn) before answering with the session as it is.
+    TIMEOUT_LOCK_WAIT = 180.0
 
     def __init__(
         self,
@@ -626,7 +731,8 @@ class RuntimeChatSession:
         # Streaming reaches the pipeline's `generate_stream`, which the
         # llm_utils pipelines do not define; setting the hook against one of
         # those would raise on the first `generate`, so it stays unset.
-        if hasattr(pipeline, "generate_stream"):
+        pipelines = pipeline.values() if isinstance(pipeline, dict) else [pipeline]
+        if all(hasattr(p, "generate_stream") for p in pipelines):
             self.interpreter.on_generate_delta = self._on_delta
 
         self.recorder = TranscriptRecorder()
@@ -641,7 +747,9 @@ class RuntimeChatSession:
 
         self._flow = None
         self._pending_request: Optional[InputRequest] = None
+        self._parked_at = 0.0
         self._turn_lock = threading.Lock()
+        self._timeout_timer: Optional[threading.Timer] = None
 
         self.deltas: list[dict] = []
         self.status = "new"
@@ -729,6 +837,61 @@ class RuntimeChatSession:
             self._turn_lock.release()
         return self
 
+    def input_timeout_remaining(self) -> Optional[float]:
+        """Seconds until the pending request times out, or None when it has no timeout."""
+        request = self._pending_request
+        if request is None or request.timeout is None:
+            return None
+        return max(0.0, request.timeout - (time.monotonic() - self._parked_at))
+
+    def send_timeout(self, expected: Optional[InputRequest] = None) -> "RuntimeChatSession":
+        """Run the timeout turn if the pending timed request is due; otherwise do nothing.
+
+        Both the backend's own timer and the browser call this, so it is
+        idempotent: whichever arrives second (or early) finds nothing due and
+        leaves the session as it is. `expected` pins the call to one request, so
+        a timer set for a request that was answered meanwhile does nothing. It
+        waits for a turn in progress rather than failing, since that turn is
+        most likely the other caller's timeout. No reader message is delivered,
+        so this is a turn without a branch point.
+        """
+        if not self._turn_lock.acquire(timeout=self.TIMEOUT_LOCK_WAIT):
+            raise SessionBusy(f"Session {self.id} is still running a turn.")
+        try:
+            if expected is not None and self._pending_request is not expected:
+                return self
+            remaining = self.input_timeout_remaining()
+            if remaining is None or remaining > self.TIMEOUT_TOLERANCE:
+                return self
+            self._pending_request = None
+            self._run_turn(INPUT_TIMEOUT)
+        finally:
+            self._turn_lock.release()
+        return self
+
+    def _schedule_timeout(self) -> None:
+        """Time out a timed request on the backend, so no browser has to be watching.
+
+        Runs from `_pump`, under the turn lock; the timer's own call takes the
+        lock afterwards and does nothing if its request is no longer pending.
+        """
+        if self._timeout_timer is not None:
+            self._timeout_timer.cancel()
+            self._timeout_timer = None
+        request = self._pending_request
+        if request is None or request.timeout is None:
+            return
+        timer = threading.Timer(request.timeout, self._timeout_due, args=(request,))
+        timer.daemon = True
+        self._timeout_timer = timer
+        timer.start()
+
+    def _timeout_due(self, request: InputRequest) -> None:
+        try:
+            self.send_timeout(expected=request)
+        except SessionBusy:
+            pass
+
     def _run_turn(self, text: str) -> None:
         """Deliver one answer, keeping the checkpoint the turn started from.
 
@@ -759,8 +922,10 @@ class RuntimeChatSession:
                 while True:
                     try:
                         self._pending_request = step()
+                        self._parked_at = time.monotonic()
                         self.status = "awaiting_input"
                         self._park_checkpoint()
+                        self._schedule_timeout()
                         return
                     except CommandRestart:
                         # A `/load` handler replaced the whole session under us.
@@ -963,11 +1128,44 @@ class RuntimeChatSession:
         self.saved_path = str(path)
         return self.saved_path
 
+    def discard(self) -> None:
+        """Drop this run: the parked flow, its checkpoints and its transcript.
+
+        Taken under the same non-blocking turn lock as every other way of
+        running a turn, so a session cannot be torn down from under a request
+        that is mid-generation; the caller gets `SessionBusy` and can try again
+        when the turn lands. The lock is released afterwards even though nothing
+        should reach this session again -- the app drops its only reference on
+        the way out, and a lock left held would be a lie about why.
+
+        Everything a checkpoint holds is a deep copy of every actor's history,
+        which is the bulk of a session's memory, so this is dropped explicitly
+        rather than left to the reference count of whatever else may still be
+        looking at the object.
+        """
+        if not self._turn_lock.acquire(blocking=False):
+            raise SessionBusy(f"Session {self.id} is running a turn.")
+        try:
+            if self._timeout_timer is not None:
+                self._timeout_timer.cancel()
+                self._timeout_timer = None
+            self._pending_request = None
+            self._parked_checkpoint = None
+            self._flow = None
+            self.checkpoints.clear()
+            self.recorder.reset()
+            self.status = "discarded"
+        finally:
+            self._turn_lock.release()
+
     def store_json(self) -> list[dict]:
         store = self.interpreter.store.store
         waiting = dict(self.interpreter.waiting_store)
         rows = []
         for name, value in store.items():
+            if name == GOALS_STORE_KEY:
+                # Shown structured under `goals`; as a row it is a JSON slice.
+                continue
             rows.append(
                 {
                     "name": name,
@@ -990,6 +1188,27 @@ class RuntimeChatSession:
                 )
         return rows
 
+    def histories_json(self) -> list[dict]:
+        """Every actor's full history, main actor first, for the actor view.
+
+        Unmerged, so each message is one row as the actor received it; the
+        transcript tree is a log of commands, and this is the other half -- what
+        the actor actually holds, including anything a flow wrote by hand.
+        """
+        main = self.spec.main_actor_name
+        names = sorted(self.interpreter.actors, key=lambda name: name != main)
+        return [
+            {
+                "name": name,
+                "type": type(self.interpreter.actors[name]).__name__,
+                "messages": [
+                    {"role": message["role"], "content": message["content"]}
+                    for message in self.interpreter.actors[name].history.read(merged=False)
+                ],
+            }
+            for name in names
+        ]
+
     def to_json(self) -> dict:
         request = self._pending_request
         return {
@@ -1010,6 +1229,13 @@ class RuntimeChatSession:
                 request.prompt if (request is not None and request.content) else None
             ),
             "awaiting_input": request is not None,
+            # Seconds until a timed request gives up. The backend times it out
+            # itself; the browser posts to the timeout route then to catch up.
+            # None when the request waits indefinitely.
+            "input_timeout": (
+                None if self.input_timeout_remaining() is None
+                else round(self.input_timeout_remaining(), 3)
+            ),
             "turn_count": self.turn_count,
             "exit_message": self.exit_message,
             "error": self.error,
@@ -1024,12 +1250,22 @@ class RuntimeChatSession:
             # are real messages with no checkpoint in front of them.
             "branch_points": self.branch_points(),
             "turns": self.recorder.to_json(),
+            "histories": self.histories_json(),
             "store": self.store_json(),
+            "goals": goals_snapshot(self.interpreter.store.store),
             # Runtime actors have no instruction list, so there is no step
             # pointer to report; this is how many commands each actor has run.
             "step_pointers": {
                 name: self.recorder.command_counts.get(name, 0)
                 for name in self.interpreter.actors
+            },
+            # Seconds remaining rather than an absolute deadline: the browser's
+            # clock need not agree with the host's, so the client counts down
+            # from the reading it was handed instead of from a shared instant.
+            "wait": {
+                "active": self.interpreter.wait_active,
+                "remaining": round(self.interpreter.wait_remaining, 3),
+                "total": self.interpreter.wait_seconds,
             },
             "commands": sorted(self.runtime.commands),
         }

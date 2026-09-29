@@ -12,7 +12,7 @@ to answer:
     def resume_flow(runtime): ...       # optional; used instead of `flow` after a load
     def register_commands(runtime): ... # optional; slash commands
 
-The host builds the actors, so one pipeline chosen on the command line serves a
+The host builds the actors, so the pipelines chosen on the command line serve a
 whole scenario and the module says only which actors exist and what type each
 one is. Actors are built with no `instructions`, which is a library-runtime
 actor's correct starting state: its commands come from the flow, not a list.
@@ -167,14 +167,22 @@ class RuntimeScenarioSpec:
         return list(self.actor_types)
 
     def build_actors(self, storage_dir: str | pathlib.Path, pipeline) -> list[Actor]:
-        """One actor per name, sharing one pipeline and holding no instructions."""
+        """One actor per name, holding no instructions.
+
+        `pipeline` is either one pipeline shared by every actor, or a dict
+        mapping every actor name to its own pipeline.
+        """
+        if isinstance(pipeline, dict):
+            missing = [name for name in self.actor_names if name not in pipeline]
+            if missing:
+                raise ValueError(f"pipeline dict is missing entries for actors: {missing}")
         return [
             actor_from_config(
                 ActorConfig(
                     name=name,
                     actor_type=self.actor_types.get(name),
                     storage_dir=str(storage_dir),
-                    pipeline=pipeline,
+                    pipeline=pipeline[name] if isinstance(pipeline, dict) else pipeline,
                 )
             )
             for name in self.actor_names

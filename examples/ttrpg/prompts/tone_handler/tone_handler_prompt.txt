@@ -1,0 +1,13 @@
+## The encounter in progress
+
+$encounter
+
+## Why the tone is being set
+
+$reason
+
+## The story so far (most recent part)
+
+$scene
+
+Pick exactly one of these tones: $tones

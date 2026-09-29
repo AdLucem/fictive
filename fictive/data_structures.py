@@ -7,6 +7,15 @@ BRIGHT_NAME = "\033[96;1m"
 ANSI_RESET = "\033[0m"
 INSTRUCTIONS_RE = re.compile(r"\(INSTRUCTIONS:.*?\)", re.DOTALL)
 
+
+def format_instructions(text: str) -> str:
+    """Wrap `text` as an `(INSTRUCTIONS: ...)` turn that INSTRUCTIONS_RE hides whole.
+
+    The regex ends at the first `)`, so parentheses inside become brackets.
+    """
+    body = str(text).replace("(", "[").replace(")", "]").strip()
+    return f"(INSTRUCTIONS: {body})"
+
 class History:
 
     def __init__(self, names={"user": "user", "assistant": "assistant"}, init_list=[]):
