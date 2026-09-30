@@ -9,6 +9,9 @@ export type NodeKind = "message" | "flow" | "step";
  */
 export type ViewMode = "dev" | "live";
 
+/** The colour scheme: Material dark, or the woodland light scheme. */
+export type Theme = "dark" | "light";
+
 export interface MessageNode {
   kind: "message";
   seq: number;

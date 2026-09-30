@@ -112,7 +112,7 @@ def _apply_game_change(adv, sheets, game_state, change):
         if value not in game_state["revealed"]:
             game_state["revealed"].append(value)
     elif field == "enter":
-        _require(value in adv["roster"] and value != adv["player_character"], f"{value!r} can't enter")
+        _require(value in adv["character_sheets"] and value != adv["player_character"], f"{value!r} can't enter")
         state.spawn(adv, sheets, game_state, value)
     elif field == "leave":
         _require(value in game_state["present"] and value != adv["player_character"], f"{value!r} can't leave")
@@ -141,7 +141,7 @@ def _describe(adv, sheets, change):
     if "reveal" in change:
         return f"The player character has learned: {change['reveal']}"
     if "enter" in change:
-        return f"{adv['roster'][change['enter']]['name']} enters the scene."
+        return f"{adv['character_sheets'][change['enter']]['name']} enters the scene."
     if "leave" in change:
         return f"{state.entry(adv, sheets[change['leave']])['name']} leaves the scene."
     return None

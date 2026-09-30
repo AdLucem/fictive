@@ -125,7 +125,7 @@ def turn_notes(ruling, check):
 
 
 def opening_note(adv):
-    pc = adv["roster"][adv["player_character"]]
+    pc = adv["character_sheets"][adv["player_character"]]
     location = adv["locations"][adv["start_location"]]
     return config.load_prompt(
         "generator", "opening",

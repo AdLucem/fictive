@@ -10,9 +10,9 @@ $locations
 
 $flags
 
-## Roster
+## Character Sheets
 
-$roster
+$character_sheets
 
 ## The player's latest message
 

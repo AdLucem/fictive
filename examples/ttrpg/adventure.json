@@ -1,52 +1,9 @@
 {
-  "premise": "The Relic of Saint Veyra, a silver reliquary said to calm floodwaters, was lost when the crypt beneath the abbey flooded a century ago. The abbey's archivist has found the crypt's old plans and gone down alone to bring it back.",
-  "scene_goal": "Recover the relic from the flooded crypt",
-  "criteria": "Mira is back in the abbey cloister holding the relic",
+  "premise": "An ancient evil lies sleeping beneath a sleepy island town. The forest that covers the southernmost shore of the town is rumored to be the entrance to a sealed tomb. You are Mira, a grad student doing your doctoral thesis on pre-historic undead entities, and you have travelled to the forest hoping to get an interview.",
+  "scene_goal": "Find and enter the pre-historic tomb.",
+  "criteria": "Successfully reach the location: pre-historic tomb.",
   "player_character": "mira",
-  "start_location": "crypt_entrance",
-  "roster": {
-    "mira": {
-      "name": "Mira", "kind": "pc", "unique": true,
-      "abilities": {"strength": 1, "knowledge": 3, "mana": -1},
-      "description": "A young archivist with an axe she barely knows how to use.",
-      "visible": true
-    },
-    "ferryman": {
-      "name": "The Ferryman", "kind": "npc", "unique": true,
-      "abilities": {"strength": -1, "knowledge": 4, "mana": 2},
-      "description": "A hooded figure poling a flat boat across the black water.",
-      "secrets": "He drowned here a century ago and cannot leave the crypt. He knows the relic lies in the lower vault.",
-      "visible": false
-    },
-    "drowned_dead": {
-      "name": "Drowned Dead", "kind": "monster", "unique": false,
-      "abilities": {"strength": 3, "knowledge": -4, "mana": 0},
-      "description": "A bloated corpse that drags itself out of the water.",
-      "visible": false
-    }
-  },
-  "locations": {
-    "abbey_cloister": {
-      "name": "Abbey Cloister",
-      "description": "A quiet square of worn flagstones around a dry fountain.",
-      "exits": ["crypt_entrance"]
-    },
-    "crypt_entrance": {
-      "name": "Crypt Entrance",
-      "description": "Worn steps descend into cold, standing water.",
-      "exits": ["abbey_cloister", "flooded_nave"]
-    },
-    "flooded_nave": {
-      "name": "Flooded Nave",
-      "description": "A drowned hall, crossed by a rotting rope bridge.",
-      "exits": ["crypt_entrance", "lower_vault"]
-    },
-    "lower_vault": {
-      "name": "Lower Vault",
-      "description": "A sealed chamber below the waterline.",
-      "exits": ["flooded_nave"]
-    }
-  },
+  "start_location": "enchanted_forest",
   "flags": {
     "bridge_collapsed": {"initial": false, "description": "The rope bridge over the nave has fallen into the water."},
     "ferryman_paid": {"initial": false, "description": "Mira has paid the Ferryman's toll."},

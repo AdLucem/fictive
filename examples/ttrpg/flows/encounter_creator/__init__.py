@@ -18,20 +18,20 @@ def create_encounter(runtime, adv):
         game=as_json(state.game(runtime)),
         locations=as_json(adv["locations"]),
         flags=as_json(adv["flags"]),
-        roster=as_json(roster_view(adv, state.characters(runtime))),
+        character_sheets=as_json(character_sheets_view(adv, state.characters(runtime))),
         scene=scene_tail(runtime),
         max_steps=config.MAX_ENCOUNTER_STEPS,
     )
     return generate_json(runtime, lambda plan: check_plan(adv, plan))
 
 
-def roster_view(adv, sheets):
-    """Every roster character but the player character, marked with whether one is already in play."""
-    in_play = {sheet["roster_id"] for sheet in sheets.values()}
+def character_sheets_view(adv, sheets):
+    """Every character sheet but the player character's, marked with whether one is already in play."""
+    in_play = {sheet["sheet_id"] for sheet in sheets.values()}
     return {
-        roster_id: {**entry, "in_play": roster_id in in_play}
-        for roster_id, entry in adv["roster"].items()
-        if roster_id != adv["player_character"]
+        sheet_id: {**entry, "in_play": sheet_id in in_play}
+        for sheet_id, entry in adv["character_sheets"].items()
+        if sheet_id != adv["player_character"]
     }
 
 
@@ -49,7 +49,7 @@ def check_plan(adv, plan):
             step["turn_budget"] = config.STEP_TURN_BUDGET
     if not isinstance(plan["characters"], list):
         raise TypeError('"characters" must be a list')
-    for roster_id in plan["characters"]:
-        if roster_id not in adv["roster"] or roster_id == adv["player_character"]:
-            raise ValueError(f"{roster_id!r} is not a roster character other than the player character")
+    for sheet_id in plan["characters"]:
+        if sheet_id not in adv["character_sheets"] or sheet_id == adv["player_character"]:
+            raise ValueError(f"{sheet_id!r} is not a character sheet other than the player character's")
     return plan

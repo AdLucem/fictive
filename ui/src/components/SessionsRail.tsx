@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Scenario, SessionsIndex, ViewMode } from "../types";
+import type { Scenario, SessionsIndex, Theme, ViewMode } from "../types";
 import { Lighthouse, Plus, Search, Trash } from "./icons";
 
 interface Props {
@@ -13,11 +13,18 @@ interface Props {
   onDelete: (id: string) => void;
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
 }
 
 const MODES: { value: ViewMode; label: string; hint: string }[] = [
   { value: "dev", label: "Dev", hint: "Every command and called actor, inline." },
   { value: "live", label: "Live", hint: "Only your turns and the replies the flow shows." },
+];
+
+const THEMES: { value: Theme; label: string }[] = [
+  { value: "dark", label: "Dark" },
+  { value: "light", label: "Light" },
 ];
 
 interface RowProps {
@@ -122,6 +129,8 @@ export function SessionsRail({
   onDelete,
   mode,
   onModeChange,
+  theme,
+  onThemeChange,
 }: Props) {
   const [query, setQuery] = useState("");
   // At most one row is ever asking to be confirmed, so this is the id rather
@@ -254,6 +263,20 @@ export function SessionsRail({
           ))}
         </div>
         <p className="settings__hint">{MODES.find((option) => option.value === mode)?.hint}</p>
+        <div className="segmented settings__theme" role="radiogroup" aria-label="Theme">
+          {THEMES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={theme === option.value}
+              className="segmented__option state-layer"
+              onClick={() => onThemeChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </section>
 
       <div className="rail__foot">

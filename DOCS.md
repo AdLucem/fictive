@@ -319,6 +319,11 @@ countdown -- works the same in both. A resumed session's restored replies count
 as shown. Live mode needs a library-runtime flow; it does not apply to JSON
 scenarios.
 
+**Settings: dark and light theme.** Below the view mode, a second switch picks
+the colour scheme: the default dark scheme, or a light one in woodland neutrals
+(cream, bark brown, moss green). The choice is remembered per browser; until
+one is made, the page follows the system's light/dark preference.
+
 **Actor histories.** The dropdown at the right of the top bar lists **Main**
 and every actor in the scenario. Picking an actor replaces the chat window with
 that actor's full history, message by message: what it was sent as bubbles, its

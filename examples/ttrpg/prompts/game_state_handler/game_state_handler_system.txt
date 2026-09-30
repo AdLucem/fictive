@@ -16,7 +16,7 @@ Each change does exactly one thing:
 - {"move_to": "<location id>", "via": "..."}: the player character goes to another location; "via" says how, including the check if there was one. The player character isn't limited to a location's exits, which are only the ordinary routes: any action that plausibly gets them there counts, such as breaking through a wall or swimming under a flooded arch. Only move them when the action actually got them there.
 - {"set_flag": "<flag name>", "value": true | false}: a declared fact about the world changed.
 - {"reveal": "..."}: the player character learned something new and important, in one sentence.
-- {"enter": "<roster id>"}: a character from the roster comes into the scene.
+- {"enter": "<character sheet id>"}: a character from the character sheets comes into the scene.
 - {"leave": "<character id>"}: a character leaves the scene, for example because they fled or were left behind.
 
 When the player character moves, decide who comes with them; everyone else leaves the scene.

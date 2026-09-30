@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { api } from "./api";
-import type { Scenario, Session, SessionsIndex, ViewMode } from "./types";
+import type { Scenario, Session, SessionsIndex, Theme, ViewMode } from "./types";
 import { ActorHistoryView } from "./components/ActorHistoryView";
 import { ActorMenu } from "./components/ActorMenu";
 import { Composer } from "./components/Composer";
@@ -21,6 +21,19 @@ function readMode(): ViewMode {
   }
 }
 
+const THEME_KEY = "fictive.theme";
+
+/** A remembered choice wins; otherwise the browser's own light/dark preference. */
+function readTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    // Fall through to the system preference.
+  }
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 interface Toast {
   text: string;
   tone: "info" | "error";
@@ -35,6 +48,7 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [toast, setToast] = useState<Toast | null>(null);
   const [mode, setMode] = useState<ViewMode>(readMode);
+  const [theme, setTheme] = useState<Theme>(readTheme);
   /** The actor whose history fills the chat window; `null` is the main chat. */
   const [viewActor, setViewActor] = useState<string | null>(null);
 
@@ -42,6 +56,20 @@ export default function App() {
     setMode(next);
     try {
       window.localStorage.setItem(MODE_KEY, next);
+    } catch {
+      // Not remembered across reloads; the switch itself still works.
+    }
+  };
+
+  // Set before paint, so a light-theme reload does not flash the dark scheme.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  const onThemeChange = (next: Theme) => {
+    setTheme(next);
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
     } catch {
       // Not remembered across reloads; the switch itself still works.
     }
@@ -247,6 +275,8 @@ export default function App() {
         onDelete={onDelete}
         mode={mode}
         onModeChange={onModeChange}
+        theme={theme}
+        onThemeChange={onThemeChange}
       />
 
       <main className="main">

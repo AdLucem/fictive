@@ -140,7 +140,12 @@ helpers and SGLang integration.
   delete control that asks once in the row itself
   (`ui/src/components/SessionsRail.tsx`). The rail also holds a Settings
   section with the `dev` / `live` view mode (`ViewMode` in `ui/src/types.ts`,
-  kept in `App.tsx` and remembered in `localStorage`). `live` is a client-side
+  kept in `App.tsx` and remembered in `localStorage`) and a `dark` / `light`
+  theme switch (`Theme` in `ui/src/types.ts`; `App.tsx` remembers it in
+  `localStorage`, falls back to `prefers-color-scheme`, and sets
+  `data-theme` on `<html>`). Every colour in `ui/src/theme.css` is a `:root`
+  token; the light scheme redefines them under `:root[data-theme="light"]`,
+  so components never name a colour directly. `live` is a client-side
   filter in `Transcript.tsx`: it draws only reader messages and message nodes
   whose `shown` flag `Runtime.show_reply` set, and hides steps and flow bars;
   the backend records the same tree in both modes. `ui/src/components/WaitTimer.tsx` is

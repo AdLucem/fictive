@@ -35,8 +35,8 @@ def start(rt, adv, plan):
         return None
 
     sheets, game_state = state.characters(rt), state.game(rt)
-    for roster_id in plan["characters"]:
-        state.spawn(adv, sheets, game_state, roster_id)
+    for sheet_id in plan["characters"]:
+        state.spawn(adv, sheets, game_state, sheet_id)
     game_state["encounter"] = encounter_id
     state.save_characters(rt, sheets)
     state.save_game(rt, game_state)

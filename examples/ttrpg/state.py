@@ -12,31 +12,40 @@ GAME_KEY = "ttrpg_game"
 # -- the adventure file --------------------------------------------------
 
 
-def load_adventure(path=config.ADVENTURE_FILE):
+def load_adventure(
+    path=config.ADVENTURE_FILE,
+    locations_path=config.LOCATIONS_FILE,
+    character_sheets_path=config.CHARACTER_SHEETS_FILE,
+):
     with open(path) as f:
         adventure = json.load(f)
+    for key, own_path in (("locations", locations_path), ("character_sheets", character_sheets_path)):
+        if key in adventure:
+            raise ValueError(f"{path} lists the {key}; it belongs in {own_path}")
+        with open(own_path) as f:
+            adventure[key] = json.load(f)
     check_adventure(adventure)
     return adventure
 
 
 def check_adventure(adv):
     """Raise ValueError if the adventure file breaks the README's rules."""
-    roster, locations = adv["roster"], adv["locations"]
-    pc = roster.get(adv["player_character"])
+    character_sheets, locations = adv["character_sheets"], adv["locations"]
+    pc = character_sheets.get(adv["player_character"])
     if pc is None or pc["kind"] != "pc":
-        raise ValueError(f"player_character {adv['player_character']!r} must be a roster entry of kind 'pc'")
+        raise ValueError(f"player_character {adv['player_character']!r} must be a character sheet of kind 'pc'")
     if adv["start_location"] not in locations:
         raise ValueError(f"start_location {adv['start_location']!r} is not a declared location")
     for location_id, location in locations.items():
         for exit_id in location["exits"]:
             if exit_id not in locations:
                 raise ValueError(f"{location_id} has an exit to undeclared location {exit_id!r}")
-    for roster_id, entry in roster.items():
+    for sheet_id, entry in character_sheets.items():
         abilities = entry["abilities"]
         if set(abilities) != set(config.ABILITIES) or not all(
             isinstance(value, int) and -5 <= value <= 5 for value in abilities.values()
         ):
-            raise ValueError(f"{roster_id} needs {', '.join(config.ABILITIES)}, each a whole number from -5 to 5")
+            raise ValueError(f"{sheet_id} needs {', '.join(config.ABILITIES)}, each a whole number from -5 to 5")
     for name, flag in adv["flags"].items():
         if not isinstance(flag.get("initial"), bool):
             raise ValueError(f"flag {name!r} needs an 'initial' of true or false")
@@ -88,35 +97,35 @@ def init_state(rt, adv):
     save_game(rt, game_state)
 
 
-def new_sheet(adv, char_id, roster_id):
+def new_sheet(adv, char_id, sheet_id):
     return {
         "id": char_id,
-        "roster_id": roster_id,
+        "sheet_id": sheet_id,
         "lp": config.MAX_LP,
         "status": "active",
         "conditions": [],
         "disposition": "neutral",
-        "visible": adv["roster"][roster_id]["visible"],
+        "visible": adv["character_sheets"][sheet_id]["visible"],
         "notes": [],
     }
 
 
-def spawn(adv, sheets, game_state, roster_id):
-    """Bring a roster character into play and into the scene; returns its id in play.
+def spawn(adv, sheets, game_state, sheet_id):
+    """Bring a character into play from its character sheet; returns its id in play.
 
     Edits `sheets` and `game_state` in place; the caller saves them. A unique
-    character keeps its roster id and is never copied; a non-unique one gets the
+    character keeps its sheet id and is never copied; a non-unique one gets the
     next free numbered id.
     """
-    if adv["roster"][roster_id]["unique"]:
-        char_id = roster_id
+    if adv["character_sheets"][sheet_id]["unique"]:
+        char_id = sheet_id
     else:
         n = 1
-        while f"{roster_id}_{n}" in sheets:
+        while f"{sheet_id}_{n}" in sheets:
             n += 1
-        char_id = f"{roster_id}_{n}"
+        char_id = f"{sheet_id}_{n}"
     if char_id not in sheets:
-        sheets[char_id] = new_sheet(adv, char_id, roster_id)
+        sheets[char_id] = new_sheet(adv, char_id, sheet_id)
     if char_id not in game_state["present"]:
         game_state["present"].append(char_id)
     return char_id
@@ -126,8 +135,8 @@ def spawn(adv, sheets, game_state, roster_id):
 
 
 def entry(adv, sheet):
-    """The roster entry a sheet was made from: name, kind, abilities, description, secrets."""
-    return adv["roster"][sheet["roster_id"]]
+    """The character sheet a live sheet was made from: name, kind, abilities, description, secrets."""
+    return adv["character_sheets"][sheet["sheet_id"]]
 
 
 def full_sheet(adv, sheet):

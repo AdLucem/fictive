@@ -1,7 +1,10 @@
 /* Material 3 dark scheme, purple source. Depth in the transcript is tonal
-   elevation: one surface-container step per callstack frame, L1 to L5. */
+   elevation: one surface-container step per callstack frame, L1 to L5.
+   `[data-theme="light"]` below swaps in the light scheme; `App.tsx` sets it. */
 
 :root {
+  color-scheme: dark;
+
   --bg: #0e0b12;
   --surface-low: #15111c;
   --level-1: #1a1522;
@@ -33,6 +36,16 @@
   --inverse-on-surface: #332b40;
   --inverse-primary: #6b3fa0;
 
+  --state-hover: rgba(232, 224, 240, 0.08);
+  --state-press: rgba(232, 224, 240, 0.12);
+  --placeholder: #a99db8;
+  --scrollbar: #2c2438;
+  --var-chip: #d8cfe6;
+  --stub-border: #7c7189;
+  --shadow-fab: 0 3px 6px rgba(0, 0, 0, 0.42);
+  --shadow-menu: 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-snackbar: 0 4px 12px rgba(0, 0, 0, 0.55);
+
   --sans: "DM Sans", system-ui, sans-serif;
   --serif: Newsreader, Georgia, serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -41,6 +54,54 @@
   --shape-md: 12px;
   --shape-lg: 16px;
   --shape-full: 999px;
+}
+
+/* Light scheme in woodland neutrals: cream paper, bark-brown ink, moss green
+   for the primary, oak for the reader's side and rust for the tertiary. Depth
+   runs the other way here, each frame a shade deeper into the wood. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f6f1e7;
+  --surface-low: #eee7d9;
+  --level-1: #e8e0cf;
+  --level-2: #e0d6c2;
+  --level-3: #d7cbb4;
+  --level-4: #cec0a6;
+  --level-5: #c5b699;
+
+  --on-surface: #2e2419;
+  --on-surface-variant: #54473a;
+  --muted: #625444;
+  --outline: #857461;
+  --outline-variant: #b8a88e;
+
+  --primary: #466b34;
+  --on-primary: #f6f1e7;
+  --primary-container: #d2e1bd;
+  --on-primary-container: #1d3310;
+
+  --secondary-container: #ead2aa;
+  --on-secondary-container: #3b2914;
+  --tertiary-container: #f0d3bd;
+  --on-tertiary-container: #4d2412;
+
+  --error-container: #f4cfc6;
+  --on-error-container: #5e1a10;
+
+  --inverse-surface: #3b3025;
+  --inverse-on-surface: #f3ecde;
+  --inverse-primary: #b4d198;
+
+  --state-hover: rgba(46, 36, 25, 0.06);
+  --state-press: rgba(46, 36, 25, 0.1);
+  --placeholder: #8a7a66;
+  --scrollbar: #cdbfa5;
+  --var-chip: #4f4234;
+  --stub-border: #9c8b73;
+  --shadow-fab: 0 2px 6px rgba(60, 44, 26, 0.2);
+  --shadow-menu: 0 6px 18px rgba(60, 44, 26, 0.22);
+  --shadow-snackbar: 0 4px 12px rgba(60, 44, 26, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -60,8 +121,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* Material state layer: 8% on-surface over whatever the element already is. */
 .state-layer { position: relative; }
-.state-layer:hover { background-image: linear-gradient(rgba(232, 224, 240, 0.08), rgba(232, 224, 240, 0.08)); }
-.state-layer:active { background-image: linear-gradient(rgba(232, 224, 240, 0.12), rgba(232, 224, 240, 0.12)); }
+.state-layer:hover { background-image: linear-gradient(var(--state-hover), var(--state-hover)); }
+.state-layer:active { background-image: linear-gradient(var(--state-press), var(--state-press)); }
 
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
@@ -70,10 +131,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
 
-::placeholder { color: #a99db8; opacity: 1; }
+::placeholder { color: var(--placeholder); opacity: 1; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2c2438; border-radius: var(--shape-full); border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: var(--shape-full); border: 3px solid transparent; background-clip: content-box; }
 
 /* ---------------------------------------------------------------- shell */
 
@@ -97,6 +158,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .segmented__option + .segmented__option { border-left: 1px solid var(--outline-variant); }
 .segmented__option[aria-checked="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
+.settings__theme { margin-top: 12px; }
 .settings__hint { margin: 8px 8px 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
 .rail__foot { padding: 14px 24px 18px; border-top: 1px solid var(--level-2); font-family: var(--mono); font-size: 11px; color: var(--on-surface-variant); line-height: 1.7; }
@@ -105,7 +167,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   height: 56px; display: flex; align-items: center; gap: 12px;
   padding: 0 20px 0 16px; border: 0; border-radius: var(--shape-lg);
   background: var(--primary-container); color: var(--on-primary-container);
-  font-size: 14px; font-weight: 500; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.42);
+  font-size: 14px; font-weight: 500; box-shadow: var(--shadow-fab);
 }
 .fab:disabled { opacity: 0.5; cursor: progress; }
 
@@ -294,7 +356,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .actor-menu__list {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 240px; max-height: 60vh; overflow: auto;
   padding: 8px 0; border-radius: var(--shape-sm); background: var(--level-3);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column;
+  box-shadow: var(--shadow-menu); display: flex; flex-direction: column;
 }
 .actor-menu__item {
   display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
@@ -311,7 +373,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .var-chip {
   font-family: var(--mono); font-size: 12px; height: 24px; display: inline-flex; align-items: center;
-  padding: 0 8px; border-radius: var(--shape-sm); border: 1px solid var(--outline-variant); color: #d8cfe6;
+  padding: 0 8px; border-radius: var(--shape-sm); border: 1px solid var(--outline-variant); color: var(--var-chip);
   white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
 .status {
@@ -357,7 +419,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .depth-stub {
   display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 14px;
-  border: 1px dashed #7c7189; border-radius: var(--shape-md); font-size: 13px; color: var(--on-surface-variant);
+  border: 1px dashed var(--stub-border); border-radius: var(--shape-md); font-size: 13px; color: var(--on-surface-variant);
 }
 .depth-stub__names { font-family: var(--mono); color: var(--on-surface); }
 
@@ -432,7 +494,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute; left: 24px; bottom: 132px; display: flex; align-items: center; gap: 8px;
   min-height: 48px; padding: 6px 8px 6px 16px; border-radius: 4px;
   background: var(--inverse-surface); color: var(--inverse-on-surface);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55); font-size: 14px; max-width: 560px;
+  box-shadow: var(--shadow-snackbar); font-size: 14px; max-width: 560px;
 }
 .snackbar__action { height: 36px; padding: 0 12px; border: 0; border-radius: 18px; background: transparent; font-size: 14px; font-weight: 500; color: var(--inverse-primary); }
 .snackbar--error { background: var(--error-container); color: var(--on-error-container); }

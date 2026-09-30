@@ -7,6 +7,8 @@ SCENARIO_ROOT = Path(__file__).resolve().parent
 SCENARIO_DIR = SCENARIO_ROOT
 PROMPTS_DIR = SCENARIO_ROOT / "prompts"
 ADVENTURE_FILE = SCENARIO_ROOT / "adventure.json"
+LOCATIONS_FILE = SCENARIO_ROOT / "locations.json"
+CHARACTER_SHEETS_FILE = SCENARIO_ROOT / "character_sheets.json"
 
 PROMPT_SUFFIXES = (".txt", ".md")
 

@@ -1,0 +1,28 @@
+flowchart TD
+    P([Player sends a message]) --> J1["Judge<br/>Is the current encounter step resolved?"]
+    J1 --> A["Adjudicator<br/>In character? Needs a check?<br/>Which ability, how hard?"]
+    A -->|out of character| OVER
+    A -->|needs a check| R[["Roll d20 + modifier<br/>against the DC"]]
+    A -->|no check needed| CSH
+    R --> CSH["Character State Handler<br/>Propose changes to character sheets"]
+    CSH --> AC[["Check and apply<br/>sheet changes"]]
+    AC --> GSH["Game State Handler<br/>Propose changes to the world"]
+    GSH --> AG[["Check and apply<br/>world changes"]]
+    AG --> ENC{"Encounter<br/>in progress?"}
+    ENC -->|yes| COMP{"Did the check end<br/>in a complication?"}
+    ENC -->|no| J2["Judge<br/>Is the scene goal done?"]
+    J2 -->|still open| EC["Encounter Creator<br/>Plan the next encounter"]
+    J2 -->|done or failed| OVER
+    EC --> T["Tone Handler<br/>Set the mood"]
+    COMP -->|yes| T
+    COMP -->|no| OVER
+    T --> OVER{"Adventure over?<br/>Goal closed, or player<br/>character down or dead"}
+    OVER -->|no| G["Generator<br/>Narrate the turn"]
+    OVER -->|yes| GE["Generator<br/>Narrate the ending"]
+    G --> P
+    GE --> END([End])
+
+    classDef llm fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef code fill:#f3f4f6,stroke:#6b7280,color:#111827
+    class J1,A,CSH,GSH,J2,EC,T,G,GE llm
+    class R,AC,AG,ENC,COMP,OVER code

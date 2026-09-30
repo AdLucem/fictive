@@ -1,0 +1,22 @@
+{
+  "forest_borders": {
+    "name": "Forest Borders",
+    "description": "Where the last cottages of the town give way to the trees of the southern shore.",
+    "exits": ["enchanted_forest"]
+  },
+  "enchanted_forest": {
+    "name": "Enchanted Forest",
+    "description": "A small forest on the southern shore of the island, full of dark trees and mysterious glows.",
+    "exits": ["forest_borders", "tomb_entrance"]
+  },
+  "tomb_entrance": {
+    "name": "Tomb Entrance",
+    "description": "A moss-covered stone doorway, sealed shut and half-buried in the forest floor.",
+    "exits": ["enchanted_forest", "tomb"]
+  },
+  "tomb": {
+    "name": "Tomb",
+    "description": "UNKNOWN",
+    "exits": ["tomb_entrance"]
+  }
+}
