@@ -1,0 +1,19 @@
+%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+flowchart TB
+    subgraph sheet["Mira · player character"]
+        direction TB
+        LP["Life Points: 20 / 20"]
+        subgraph abilities["Ability modifiers"]
+            direction LR
+            S["Strength<br/>+1"] ~~~ K["Knowledge<br/>+3"] ~~~ M["Mana<br/>-1"]
+        end
+        D["A graduate student in her thirties with an axe she barely knows how to use."]
+        LP ~~~ abilities ~~~ D
+    end
+
+    classDef stat fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef text fill:#f3f4f6,stroke:#6b7280,color:#111827
+    class LP,S,K,M stat
+    class D text
+    style sheet fill:#ffffff,stroke:#111827,stroke-width:2px
+    style abilities fill:#f9fafb,stroke:#9ca3af

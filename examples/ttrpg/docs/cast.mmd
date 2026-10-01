@@ -1,0 +1,23 @@
+flowchart LR
+    P([Player]) -->|message| G["Generator<br/>The narrator"]
+    G -->|narration| P
+    P -.->|message| behind
+
+    subgraph behind["Behind the scenes, in turn order"]
+        direction TB
+        J["Judge<br/>Is the encounter step resolved?"]
+        A["Adjudicator<br/>Does the action need a check?"]
+        CSH["Character State Handler<br/>Keeps the character sheets"]
+        GSH["Game State Handler<br/>Keeps the state of the world"]
+        EC["Encounter Creator<br/>Plans the next encounter"]
+        T["Tone Handler<br/>Sets the mood"]
+        J ~~~ A ~~~ CSH ~~~ GSH ~~~ EC ~~~ T
+    end
+
+    behind -->|what happened,<br/>the current step,<br/>the mood| G
+
+    classDef llm fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef player fill:#fef3c7,stroke:#d97706,color:#78350f
+    class G,J,A,CSH,GSH,EC,T llm
+    class P player
+    style behind fill:#f9fafb,stroke:#9ca3af

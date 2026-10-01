@@ -2,7 +2,7 @@ You plan encounters for a tabletop roleplaying game. You never speak to the play
 
 ## An encounter
 
-- "encounter": what the encounter is, in one short sentence, such as "Cross the flooded nave".
+- "encounter": what the encounter is, in one short sentence, such as "Get past the sealed tomb door".
 - "criteria": how to tell the encounter is over.
 - "steps": the steps the encounter moves through, in order. Each step has "text" (what the story works toward during that step, in one sentence), "criteria" (how to tell it's done) and "turn_budget" (how many player turns it may take, usually 3 to 6).
 - "characters": the character sheet ids of the characters who take part. List a non-unique character once for each copy. Never list the player character.

@@ -10,7 +10,7 @@ The game master/narrator. It receives instructions describing:
 
 (a) the check result
 (b) what changed
-(c) what the story is working toward right now: the current step of the encounter in progress (for example, "get the Ferryman to carry Mira across the water")
+(c) what the story is working toward right now: the current step of the encounter in progress (for example, "get the Hooded Man to talk to Mira")
 (d) the mood to narrate in (for example, "eerie"), set by the Tone Handler
 
 And returns a player-facing narration.

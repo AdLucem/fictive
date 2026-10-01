@@ -1,12 +1,11 @@
 {
-  "premise": "An ancient evil lies sleeping beneath a sleepy island town. The forest that covers the southernmost shore of the town is rumored to be the entrance to a sealed tomb. You are Mira, a grad student doing your doctoral thesis on pre-historic undead entities, and you have travelled to the forest hoping to get an interview.",
+  "premise": "An ancient evil lies sleeping beneath a sleepy island town. The forest that covers the southernmost shore of the island is rumored to be the entrance to a sealed tomb. Mira, a graduate student doing her doctoral thesis on pre-historic undead entities, has travelled to the forest hoping to get an interview.",
   "scene_goal": "Find and enter the pre-historic tomb.",
   "criteria": "Successfully reach the location: pre-historic tomb.",
   "player_character": "mira",
   "start_location": "enchanted_forest",
   "flags": {
-    "bridge_collapsed": {"initial": false, "description": "The rope bridge over the nave has fallen into the water."},
-    "ferryman_paid": {"initial": false, "description": "Mira has paid the Ferryman's toll."},
-    "relic_recovered": {"initial": false, "description": "Mira holds the Relic of Saint Veyra."}
+    "gate_closed": {"initial": false, "description": "The heavy wooden gate leading into the town from the forest is closed."},
+    "noticed": {"initial": false, "description": "Mira has been noticed by the forest's inhabitants."}
   }
 }

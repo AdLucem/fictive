@@ -1,22 +1,37 @@
 {
+  "town": {
+    "name": "Island Town",
+    "description": "A sleepy fishing town of slate roofs and narrow lanes, its back turned to the forest.",
+    "exits": ["forest_borders"]
+  },
   "forest_borders": {
     "name": "Forest Borders",
-    "description": "Where the last cottages of the town give way to the trees of the southern shore.",
-    "exits": ["enchanted_forest"]
+    "description": "Where the last cottages of the town give way to the trees of the southern shore, behind a heavy wooden gate.",
+    "exits": ["town", "enchanted_forest"]
   },
   "enchanted_forest": {
     "name": "Enchanted Forest",
     "description": "A small forest on the southern shore of the island, full of dark trees and mysterious glows.",
-    "exits": ["forest_borders", "tomb_entrance"]
+    "exits": ["forest_borders", "kobold_barrows", "tomb_entrance"]
+  },
+  "kobold_barrows": {
+    "name": "Barrow Mounds",
+    "description": "A clearing of low, grass-grown mounds, their sides broken open as though something dug its way out.",
+    "exits": ["enchanted_forest", "tomb_entrance"]
   },
   "tomb_entrance": {
     "name": "Tomb Entrance",
     "description": "A moss-covered stone doorway, sealed shut and half-buried in the forest floor.",
-    "exits": ["enchanted_forest", "tomb"]
+    "exits": ["enchanted_forest", "kobold_barrows", "crypt"]
+  },
+  "crypt": {
+    "name": "Crypt",
+    "description": "A low vaulted passage of niches and old bones beyond the sealed door, lit by a faint glow with no source.",
+    "exits": ["tomb_entrance", "tomb"]
   },
   "tomb": {
     "name": "Tomb",
     "description": "UNKNOWN",
-    "exits": ["tomb_entrance"]
+    "exits": ["crypt"]
   }
 }

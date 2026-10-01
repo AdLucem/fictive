@@ -2,20 +2,20 @@
   "mira": {
     "name": "Mira", "kind": "pc", "unique": true,
     "abilities": {"strength": 1, "knowledge": 3, "mana": -1},
-    "description": "A young archivist with an axe she barely knows how to use.",
+    "description": "A graduate student in her thirties with an axe she barely knows how to use.",
     "visible": true
   },
-  "ferryman": {
-    "name": "The Ferryman", "kind": "npc", "unique": true,
+  "hooded_man": {
+    "name": "The Hooded Man", "kind": "npc", "unique": true,
     "abilities": {"strength": -1, "knowledge": 4, "mana": 2},
-    "description": "A hooded figure poling a flat boat across the black water.",
-    "secrets": "He drowned here a century ago and cannot leave the crypt. He knows the relic lies in the lower vault.",
+    "description": "A hooded figure occasionally visible among the shadows.",
+    "secrets": "He died here a century ago and cannot leave the crypt.",
     "visible": false
   },
-  "drowned_dead": {
-    "name": "Drowned Dead", "kind": "monster", "unique": false,
+  "undead_kobold": {
+    "name": "Undead Kobold", "kind": "monster", "unique": false,
     "abilities": {"strength": 3, "knowledge": -4, "mana": 0},
-    "description": "A bloated corpse that drags itself out of the water.",
+    "description": "A reanimated humanoid lizard-like creature with a fell light in its eyes.",
     "visible": false
   }
 }

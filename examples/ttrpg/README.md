@@ -47,7 +47,7 @@ Each character also has a set of Life Points (LP). In this game, all characters 
   "undead_kobold": {
     "name": "Undead Kobold", "kind": "monster", "unique": false,
     "abilities": {"strength": 3, "knowledge": -4, "mana": 0},
-    "description": "A reanimated humanoid lizard-like creature with a fell light in its eyes. .",
+    "description": "A reanimated humanoid lizard-like creature with a fell light in its eyes.",
     "visible": false
   }
 }
@@ -74,7 +74,7 @@ The game master sets a premise and the overall goal of the adventure, along with
   "premise": "An ancient evil lies sleeping beneath a sleepy island town. The forest that covers the southernmost shore of the island is rumored to be the entrance to a sealed tomb. Mira, a graduate student doing her doctoral thesis on pre-historic undead entities, has travelled to the forest hoping to get an interview.",
   "scene_goal": "Find and enter the pre-historic tomb.",
   "criteria": "Successfully reach the location: pre-historic tomb.",
-  "player_character": "Mira",
+  "player_character": "mira",
   "start_location": "enchanted_forest",
   "flags": {
     "gate_closed": {"initial": false, "description": "The heavy wooden gate leading into the town from the forest is closed."},
@@ -98,12 +98,12 @@ Each location has:
   "enchanted_forest": {
     "name": "Enchanted Forest",
     "description": "A small forest on the southern shore of the island, full of dark trees and mysterious glows.",
-    "exits": ["forest_borders", "tomb_entrance"]
+    "exits": ["forest_borders", "kobold_barrows", "tomb_entrance"]
   },
   "tomb": {
     "name": "Tomb",
     "description": "UNKNOWN",
-    "exits": ["tomb_entrance"]
+    "exits": ["crypt"]
   }
 }
 ```
@@ -224,7 +224,7 @@ Changed during play:
 
 - `lp`: Life Points, between 0 and 20.
 - `status`: `active`, `down`, `dead` or `fled`.
-- `conditions`: short tags for temporary states, such as `soaked` or `grappling mira`.
+- `conditions`: short tags for temporary states, such as `frightened` or `grappling mira`.
 - `disposition`: `hostile`, `neutral` or `friendly` toward the player character.
 - `visible`: whether the player can see this sheet.
 - `notes`: a running log of what has happened to the character.
@@ -233,14 +233,14 @@ Changed during play:
 
 ```json
 {
-  "location": "flooded_nave",
-  "present": ["mira", "ferryman", "drowned_dead_1"],
-  "flags": {"bridge_collapsed": true, "ferryman_paid": false},
+  "location": "crypt",
+  "present": ["mira", "hooded_man", "undead_kobold_1"],
+  "flags": {"gate_closed": true, "noticed": true},
   "encounter": "g12",
-  "revealed": ["The relic lies in the lower vault."],
+  "revealed": ["The Hooded Man cannot leave the crypt."],
   "moves": [
-    {"from": "crypt_entrance", "to": "flooded_nave", "via": "Walked down the steps into the water."},
-    {"from": "flooded_nave", "to": "lower_vault", "via": "Smashed through the rotten vault door: Strength check, success."}
+    {"from": "enchanted_forest", "to": "tomb_entrance", "via": "Followed the glows deeper into the trees."},
+    {"from": "tomb_entrance", "to": "crypt", "via": "Forced the sealed stone door: Strength check, success."}
   ]
 }
 ```
@@ -262,10 +262,10 @@ The Character State Handler returns changes like:
 
 ```json
 {"changes": [
-  {"character": "drowned_dead_1", "lp": -5, "reason": "Mira's axe, strong success"},
-  {"character": "mira", "add_condition": "soaked"},
-  {"character": "ferryman", "disposition": "friendly"},
-  {"character": "drowned_dead_1", "visible": true, "reason": "Knowledge check, success"}
+  {"character": "undead_kobold_1", "lp": -5, "reason": "Mira's axe, strong success"},
+  {"character": "mira", "add_condition": "frightened"},
+  {"character": "hooded_man", "disposition": "friendly"},
+  {"character": "undead_kobold_1", "visible": true, "reason": "Knowledge check, success"}
 ]}
 ```
 
@@ -273,10 +273,10 @@ and the Game State Handler returns changes like:
 
 ```json
 {"changes": [
-  {"move_to": "lower_vault", "via": "Smashed through the rotten vault door: Strength check, success."},
-  {"set_flag": "bridge_collapsed", "value": true},
-  {"reveal": "The Ferryman cannot leave the crypt."},
-  {"leave": "drowned_dead_1"}
+  {"move_to": "crypt", "via": "Forced the sealed stone door: Strength check, success."},
+  {"set_flag": "noticed", "value": true},
+  {"reveal": "The Hooded Man cannot leave the crypt."},
+  {"leave": "undead_kobold_1"}
 ]}
 ```
 
@@ -306,5 +306,5 @@ Both live states are kept in the interpreter's store as JSON, so saving, rewriti
 - `special_commands.py`: `/help`, `/save`, `/load`, `/list`, `/quit`, `/sheet`, `/where` and `/dc`.
 - `flows/<actor>/`: each actor's flows. `flows/generator/` holds `play`, the entry flow; `flows/common.py` holds helpers the sub-actors share.
 - `prompts/<actor>/<actor>_<key>.txt`: each actor's system prompt and task prompt templates.
-- `docs/`: [GAMEPLAY.md](docs/GAMEPLAY.md) (the full rules), [ACTORS.md](docs/ACTORS.md) (what each actor sees and returns), [TUTORIAL.md](docs/TUTORIAL.md), and `actors.mmd` and `actors.png`, the turn's control diagram (see [How The Gameplay Works](#how-the-gameplay-works)) and its rendered image.
+- `docs/`: [GAMEPLAY.md](docs/GAMEPLAY.md) (the full rules), [ACTORS.md](docs/ACTORS.md) (what each actor sees and returns), [TUTORIAL.md](docs/TUTORIAL.md), and `actors.mmd` and `actors.png`, the turn's control diagram (see [How The Gameplay Works](#how-the-gameplay-works)) and its rendered image. `cast.mmd`/`cast.png` (the actors and the player) and `character_sheet.mmd`/`character_sheet.png` (Mira's sheet) are diagrams for `blogpost.md`, rendered the same way.
 

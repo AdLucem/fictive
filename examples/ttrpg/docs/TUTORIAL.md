@@ -888,7 +888,7 @@ def register_commands(runtime):
         runtime.register_command(name, handler)
 ```
 
-While `ask` is waiting, a message such as `/sheet ferryman` runs `handler(runtime, "ferryman")`, and `ask` waits again, so a command never counts as a turn. A handler is plain code, not a flow. Most read the store:
+While `ask` is waiting, a message such as `/sheet hooded_man` runs `handler(runtime, "hooded_man")`, and `ask` waits again, so a command never counts as a turn. A handler is plain code, not a flow. Most read the store:
 
 ```python
 @command("sheet")
@@ -1005,7 +1005,7 @@ Things to try:
 - **An action that needs no roll** ("I look around"): no roll message, and the Adjudicator's ruling has `"check": false`.
 - **An out-of-character question** ("how do checks work?"): an answer out of character. Only the Judge and the Adjudicator run before the Generator answers: nothing is rolled or changed.
 - **Moving by an unusual route** ("I smash through the wall"): the Game State Handler's bar proposes a `move_to`, and `ttrpg_game.moves` in the store gains an entry.
-- **`/sheet`, `/sheet ferryman`, `/where`:** a hidden sheet answers "You don't know."
+- **`/sheet`, `/sheet hooded_man`, `/where`:** a hidden sheet answers "You don't know."
 - **Rewriting an earlier message:** Life Points, moves and the goal tree roll back to that point, because they all live in the store.
 
 If a turn fails, `dev` view shows which actor failed and what it replied. A rejected change prints `[state] rejected ...` with the reason.
